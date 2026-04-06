@@ -1,0 +1,2 @@
+# crd
+dashboard static site
