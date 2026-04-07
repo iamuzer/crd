@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>CryptoRisk Dashboard — V10.7.4</title>
+<title>CryptoRisk Dashboard — V10.7.6</title>
 <style>
     :root {
       --bg: #0b1020;
@@ -1198,8 +1198,8 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V10.7.4</h1>
-<div class="subtitle">Engine V10.7.4 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
+<h1>CryptoRisk Dashboard — V10.7.6</h1>
+<div class="subtitle">Engine V10.7.6 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
 </div>
@@ -1263,6 +1263,7 @@
 <div class="stat"><div class="k">Simplified</div><div class="v" id="marketSimplified">—</div></div>
 <div class="stat"><div class="k">Confidence</div><div class="v" id="marketConfidence">—</div></div>
 </div>
+<div class="block"><div class="label">Indicator Snapshot</div><ul class="details-list" id="marketIndicatorSnapshot"><li>—</li></ul></div>
 <div class="commentary">
 <div class="block"><div class="label">What’s happening</div><p id="marketWhat">—</p></div>
 <div class="block"><div class="label">What it means</div><p id="marketMeaning">—</p></div>
@@ -1901,7 +1902,7 @@
 
     return {
       badgeCls: stable.partial ? 'yellow' : 'green',
-      badgeText: 'Synchronized',
+      badgeText: stable.partial ? 'Partial Data' : 'Synchronized',
       ratioText: stable.currentSmoothed != null ? stable.currentSmoothed.toFixed(1) + '%' : '—',
       percentileText: p != null ? Math.round(p) + 'th' : '—',
       trendText: trend != null ? fmtPct(trend) : '—',
@@ -2923,7 +2924,7 @@ async function fetchData() {
     return `${stateSpan(canonical)}<div class="phase-current-meta">${sub}</div>`;
   }
 
-  function buildNarrative(data, engine, confluence) {
+  function buildNarrative(data, engine, confluence, execution) {
     const { btc, eth } = data;
 
     const rsi1d  = btc.daily.rsi.current.toFixed(1);
@@ -2946,6 +2947,9 @@ async function fetchData() {
     const detailed = engine.detailed || engine.simplified;
     const canonical = mapToCanonicalState(engine.detailed, engine.simplified);
     const relLabel = engine.relState === 'STRENGTH' ? 'confirmare bună' : engine.relState === 'WEAKNESS' ? 'confirmare slabă' : 'confirmare neutră';
+
+    const stateDuration = execution && Number.isFinite(execution.stateDuration) ? execution.stateDuration : 1;
+    const maturity = stateDuration <= 2 ? 'EARLY' : stateDuration <= 5 ? 'MID' : 'LATE';
 
     const headerMap = {
       'STRUCTURAL CONFLICT': '⚠ CONFLICT STRUCTURAL — Semnalele sunt mixte. Așteaptă clarificare.',
@@ -3058,7 +3062,21 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Indicatorii pe termen scurt pot rămâne pozitivi, dar prețul se află deja într-o zonă supraextinsă. Aici problema nu este lipsa de trend, ci faptul că trendul devine mai tensionat și mai vulnerabil la corecții.',
       'BULL CONFIRMED': 'Indicatorii pe termen scurt și structura pe termen lung sunt aliniate pozitiv, iar BTC se află într-un regim constructiv. În acest context, corecțiile normale nu schimbă automat trendul de fond.'
     };
-    const momInterp = momInterpMap[canonical] || 'Contextul BTC necesită confirmări suplimentare înainte de o interpretare mai fermă.';
+    let momInterp = momInterpMap[canonical] || 'Contextul BTC necesită confirmări suplimentare înainte de o interpretare mai fermă.';
+    if (canonical === 'BEAR CONFIRMED') {
+      if (maturity === 'EARLY' && rsiDir === '↓') {
+        momInterp = 'Structura pe termen lung rămâne negativă, iar presiunea de vânzare continuă să se intensifice încă din primele zile ale fazei bearish. În acest stadiu, rebound-urile sunt mai degrabă reacții tactice decât semne de reconstrucție.';
+      } else if (maturity === 'LATE' && rsiDir === '↑') {
+        momInterp = 'Structura pe termen lung rămâne negativă, dar RSI săptămânal începe să se redreseze, ceea ce sugerează că presiunea de vânzare se reduce gradual. Acest lucru poate pregăti stabilizare sau bounce-uri tactice, fără a valida încă o schimbare de trend.';
+      }
+    }
+    if (canonical === 'BULL CONFIRMED') {
+      if (maturity === 'EARLY') {
+        momInterp = 'Indicatorii pe termen scurt și structura pe termen lung sunt aliniate pozitiv, iar BTC se află într-o fază bullish încă relativ timpurie. În acest stadiu, trendul este constructiv și mai bine susținut decât într-o fază bullish matură.';
+      } else if (maturity === 'LATE' && (rsiDir === '↓' || engine.relState !== 'STRENGTH')) {
+        momInterp = 'Structura rămâne bullish, dar faza actuală este mai matură, iar impulsul începe să piardă din forță sau nu mai este confirmat la fel de bine de ETH. Contextul rămâne pozitiv, dar calitatea trendului devine mai fragilă decât în fazele anterioare.';
+      }
+    }
     const momConclusionMap = {
       'STRUCTURAL CONFLICT': 'Nu este un context potrivit pentru concluzii direcționale puternice pe BTC fără confirmare suplimentară.',
       'WEAKENING': 'Nu este un context potrivit pentru a crește expunerea agresiv pe BTC.',
@@ -3092,6 +3110,13 @@ async function fetchData() {
       ethInterp = `ETH scade mai puțin decât BTC în contextul actual, dar aceasta nu înseamnă că piața este constructivă.
 
 Într-un trend descendent, o performanță relativă mai bună a ETH reflectă o scădere mai lentă, nu o inversare de trend.`;
+    }
+    if (canonical === 'RECOVERY ATTEMPT') {
+      if (engine.relState === 'STRENGTH') {
+        ethInterp = 'ETH începe să confirme mai bine tentativa de recovery, ceea ce sugerează o rotație a capitalului ceva mai sănătoasă decât într-un simplu bounce tactic. Chiar și așa, această confirmare trebuie privită împreună cu structura generală, nu izolat.';
+      } else {
+        ethInterp = 'Indicatorii pe termen scurt se pot îmbunătăți, dar fără o confirmare mai clară din partea ETH, această mișcare rămâne mai aproape de un rally tehnic decât de începutul unei recuperări reale. În lipsa rotației de capital către risc, tentativa de recovery rămâne incompletă.';
+      }
     }
     const ethConclusionMap = {
       'STRUCTURAL CONFLICT': 'ETH nu oferă încă baza pentru o concluzie constructivă fermă.',
@@ -3141,6 +3166,26 @@ async function fetchData() {
 
     const phaseCurrent = canonical;
     const phaseCurrentHtml = buildPhaseCurrentHTML(canonical);
+
+    const ichimokuLabel = btc.weekly.ichimoku.relation === 'above cloud'
+      ? 'Above cloud'
+      : btc.weekly.ichimoku.relation === 'below cloud'
+        ? 'Below cloud'
+        : btc.weekly.ichimoku.relation === 'inside cloud'
+          ? 'Inside cloud'
+          : (btc.weekly.ichimoku.relation || 'Unavailable');
+
+    const macdSnapshot = engine.macdBull
+      ? (rsiDir === '↑' ? 'Positive and improving' : 'Positive but losing momentum')
+      : (rsiDir === '↑' ? 'Still negative, but improving' : 'Negative and weakening');
+
+    const marketIndicatorSnapshotHtml = `
+      <li><strong>RSI (1W):</strong> ${rsi1wC} (${rsiDir === '↑' ? 'în creștere' : rsiDir === '↓' ? 'în scădere' : 'stabil'})</li>
+      <li><strong>MACD (1D):</strong> ${macdSnapshot}</li>
+      <li><strong>Ichimoku (1W):</strong> ${ichimokuLabel}</li>
+      <li><strong>ETH vs BTC:</strong> ${relLabel}</li>
+      <li><strong>Stare:</strong> ${canonical}</li>
+    `;
     const phaseWhatMap = {
       'STRUCTURAL CONFLICT': 'Semnalele din piață sunt mixte, iar direcția nu este încă validată clar.',
       'WEAKENING': 'Structura începe să slăbească, iar mișcarea pierde treptat din forță.',
@@ -3184,7 +3229,7 @@ async function fetchData() {
     return {
       header,
       snapshot:  { what: snapCtx,  meaning: snapshotMeaning,  conclusion: actionConclusion },
-      market:    { what: marketWhat,  meaning: marketMeaning,  conclusion: snapLimit },
+      market:    { what: marketWhat,  meaning: marketMeaning,  conclusion: snapLimit, snapshotHtml: marketIndicatorSnapshotHtml },
       btc:       { what: momCtx,   meaning: momInterp,   conclusion: momConclusion },
       eth:       { what: ethCtx,   meaning: ethInterp,   conclusion: ethConclusion },
       rel:       { what: relWhat,  meaning: relInterp,   conclusion: relConclusion },
@@ -3964,7 +4009,8 @@ async function fetchData() {
 function renderDashboard(data, engine) {
     const btc = data.btc, eth = data.eth;
     const confluence = keyConfluenceBTC(data, engine);
-    const text = buildNarrative(data, engine, confluence);
+    const execution = deriveExecution(data, engine);
+    const text = buildNarrative(data, engine, confluence, execution);
 
     const dt = data.fetchedAt;
     const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -4000,6 +4046,7 @@ function renderDashboard(data, engine) {
     setText('marketWhat', text.market.what);
     setText('marketMeaning', text.market.meaning);
     setText('marketConclusion', text.market.conclusion);
+    setHTML('marketIndicatorSnapshot', text.market.snapshotHtml || '<li>Unavailable</li>');
 
     setHTML('btcState', stateSpan(engine.detailed));
     setHTML('btcPrice', `${fmtPrice(btc.price)} <span class="${btc.change24h < 0 ? 'neg' : 'pos'}">(${fmtPct(btc.change24h)})</span>`);
@@ -4069,7 +4116,6 @@ function renderDashboard(data, engine) {
     setText('stableConclusion', stable.conclusion);
     setText('stableLimitations', stable.limitations);
 
-    const execution = deriveExecution(data, engine);
     setHTML('execExposure', `<span class="${execution.targetExposure >= 80 ? 'pos' : execution.targetExposure >= 40 ? 'warn' : 'neg'}">${execution.targetExposure}%</span>`);
     setHTML('execAction', `<span class="${execution.targetExposure >= 80 ? 'pos' : execution.targetExposure >= 40 ? 'warn' : 'neg'}">${execution.action}</span>`);
     setHTML('execConfidence', `<span class="${engine.confidence === 'HIGH' ? 'pos' : engine.confidence === 'MEDIUM' ? 'warn' : 'neg'}">${engine.confidence}</span>`);
@@ -4140,6 +4186,7 @@ function renderDashboard(data, engine) {
     setText('marketWhat', `Validarea datelor a detectat probleme: ${reasonText}`);
     setText('marketMeaning', 'Acesta este un fallback de siguranță. Lipsa datelor valide poate produce interpretări false dacă verdictul ar continua normal.');
     setText('marketConclusion', 'Nu folosi dashboardul pentru decizii până când Data Health revine peste prag.');
+    setHTML('marketIndicatorSnapshot', '<li><strong>Indicator Snapshot:</strong> indisponibil până la revenirea Data Health peste prag.</li>');
 
     setHTML('relState', stateSpan('LOW DATA CONFIDENCE'));
     const relBadge = document.getElementById('relBadge');
@@ -4253,7 +4300,7 @@ function renderDashboard(data, engine) {
       html: `
         <div class="doc-sections">
           <div class="doc-section">
-            <h3>What CryptoRisk V10.7.4 is</h3>
+            <h3>What CryptoRisk V10.7.6 is</h3>
             <p>CryptoRisk este un sistem de risk management pentru crypto. Nu este un sistem de trading și nu încearcă să prindă topul sau bottom-ul perfect.</p>
             <p>Scopul lui este să reducă expunerea în zonele de risc, să detecteze schimbările structurale din timp și să transforme semnalele într-o decizie de portofoliu clară.</p>
           </div>
@@ -5124,16 +5171,61 @@ function buildChangelogPanel() {
         </div>
       <div class="doc-sections">
         
+
 <div class="changelog-entry">
   <div class="meta">Current</div>
-  <h3>V10.7 — Commentary & Phase Clarity Release Hardening</h3>
-  <p>Hardening patch pentru market release: Data Health devine gate real pentru verdict, commentary-ul este separat clar pe carduri, iar metadata editorială este curățată fără să atingă engine-ul sau execution layer.</p>
+  <h3>V10.7.6 — Indicator Snapshot clarity</h3>
+  <p>Upgrade peste V10.7.5 care păstrează engine-ul, execution layer și modificatorii de commentary, dar face vizibil motivul pentru care sistemul vede starea curentă.</p>
   <ul>
-    <li>Introduced a real <strong>Data Health gate</strong>: sub 70%, dashboardul intră în LOW DATA CONFIDENCE și nu mai afișează verdictul principal.</li>
-    <li>Separated commentary roles per card: Market Snapshot, Current Market State, What’s Changed și Market Phase nu mai reutilizează același text.</li>
-    <li>Updated guide metadata to <strong>What CryptoRisk V10.7.4 is</strong> pentru consistență editorială.</li>
-    <li>Kept Stablecoin Positioning strictly context-only, with no effect on engine, confidence, action sau target exposure.</li>
-    <li>Preserved 5-minute autosync and all engine / execution logic without structural changes.</li>
+    <li>Added <strong>Indicator Snapshot</strong> în Current Market State: RSI (1W), MACD (1D), Ichimoku (1W), ETH vs BTC și starea curentă.</li>
+    <li>Snapshot-ul apare înaintea comentariilor și explică de ce sistemul vede regimul actual.</li>
+    <li>Stablecoin badge text diferențiază acum explicit <strong>Partial Data</strong> vs <strong>Synchronized</strong>.</li>
+    <li>Guide metadata și versioning editorial actualizate la <strong>V10.7.6</strong>.</li>
+  </ul>
+</div>
+
+<div class="changelog-entry">
+  <div class="meta">Previous</div>
+  <h3>V10.7.5 — Commentary nuance hardening</h3>
+  <p>Hardening patch peste V10.7.4: commentary-ul păstrează starea canonică, dar adaugă nuanță controlată în interiorul stărilor-cheie (maturity + direcția RSI + confirmarea ETH) fără să atingă engine-ul sau execution layer.</p>
+  <ul>
+    <li>buildNarrative primește acum și <strong>execution</strong>, astfel încât commentary-ul poate citi <strong>stateDuration</strong> fără să modifice engine-ul.</li>
+    <li>Added <strong>maturity</strong> (EARLY / MID / LATE) derivat din stateDuration pentru nuanță intra-stare.</li>
+    <li>Implemented minimal commentary overrides pentru <strong>BEAR CONFIRMED</strong>, <strong>BULL CONFIRMED</strong> și <strong>RECOVERY ATTEMPT</strong>.</li>
+    <li>Păstrează separarea clară între carduri și phase clarity, fără impact pe confidence, action sau target exposure.</li>
+  </ul>
+</div>
+
+<div class="changelog-entry">
+  <div class="meta">Previous</div>
+  <h3>V10.7.4 — Launch-ready stabilization</h3>
+  <p>Consolidează varianta de launch prin claritate de fază, mapare canonică și corecții de interpretare pentru ETH și Stablecoin.</p>
+  <ul>
+    <li>Phase path highlight folosește <strong>canonical state</strong> și nu mai lasă stări invizibile în Bear path / Recovery path.</li>
+    <li><strong>ETH context-aware</strong> în bear context: STRENGTH în bear este tradus corect ca scădere relativ mai lentă, nu piață constructivă.</li>
+    <li>Stablecoin Positioning rămâne complet izolat de engine și execution.</li>
+  </ul>
+</div>
+
+<div class="changelog-entry">
+  <div class="meta">Previous</div>
+  <h3>V10.7 — Phase clarity & stablecoin integration</h3>
+  <p>Introduce claritatea de fază în UI și integrează cardul de Stablecoin Positioning ca strat contextual separat.</p>
+  <ul>
+    <li>Canonical mapping pentru phase path și current position.</li>
+    <li>Cardurile commentary sunt separate mai clar ca rol: phase, rel, conf, changed.</li>
+    <li>Stablecoin Positioning adăugat ca indicator contextual, fără influență asupra engine-ului.</li>
+  </ul>
+</div>
+
+<div class="changelog-entry">
+  <div class="meta">Previous</div>
+  <h3>V10.6 — Commentary Standard V2 foundation</h3>
+  <p>Fundamentul versiunii moderne de commentary: date reale vizibile, roluri separate pe carduri și limbaj mai uman, fără a atinge motorul.</p>
+  <ul>
+    <li>Data Health gate introdus și integrat în flow-ul principal.</li>
+    <li>Commentary Standard V2: WHAT / MEANING / CONCLUSION.</li>
+    <li>Separare clară între datele din subcarduri și comentariul explicativ.</li>
   </ul>
 </div>
 
@@ -5451,6 +5543,31 @@ function backfillJournal(engineRunner) {
   // ═══════════════════════════════════════════════════════════
   // CHANGELOG — CryptoRisk Dashboard
   // ═══════════════════════════════════════════════════════════
+  //
+  // V10.7.6 — Indicator Snapshot clarity
+  //   - Added Current Market State subcard: RSI (1W), MACD (1D), Ichimoku (1W), ETH vs BTC, current canonical state
+  //   - Snapshot is shown before commentary to explain why the system sees the current state
+  //
+  // V10.7.5 — Commentary nuance hardening
+  //   - buildNarrative primește execution pentru a citi stateDuration
+  //   - maturity derivat intern: EARLY / MID / LATE
+  //   - overrides minime pentru BEAR CONFIRMED / BULL CONFIRMED / RECOVERY ATTEMPT
+  //   - fără modificări în engine, execution sizing sau confidence logic
+  //
+  // V10.7.4 — Launch-ready stabilization
+  //   - ETH context-aware fix în bear context
+  //   - Stablecoin badge / limitation polish
+  //   - phase clarity, canonical path mapping, launch cleanup
+  //
+  // V10.7 — Phase clarity & stablecoin integration
+  //   - phase current clarity
+  //   - canonical mapping helpers
+  //   - stablecoin context card integrated
+  //
+  // V10.6 — Commentary Standard V2 foundation
+  //   - data health gate
+  //   - card role separation
+  //   - narrative restructuring base
   //
   // V10.5.5 — Production Hardening (final audit patch)
   //   - FIX P1: eliminat updateJournalOutcomes duplicat
