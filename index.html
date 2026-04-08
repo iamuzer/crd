@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>CryptoRisk Dashboard — V10.7.6</title>
+<title>CryptoRisk Dashboard — V10.7.7.2</title>
 <style>
     :root {
       --bg: #0b1020;
@@ -1198,8 +1198,8 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V10.7.6</h1>
-<div class="subtitle">Engine V10.7.6 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
+<h1>CryptoRisk Dashboard — V10.7.7.2</h1>
+<div class="subtitle">Engine V10.7.7.2 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
 </div>
@@ -3017,7 +3017,7 @@ async function fetchData() {
     };
 
     const snapshotMeaning = snapshotMeaningMap[canonical] || `${stateIntro[canonical] || 'Contextul pieței cere confirmări suplimentare.'}`;
-    const actionConclusion = actionConclusionMap[canonical] || 'Este necesară confirmare suplimentară înainte de schimbarea strategiei.';
+    let actionConclusion = actionConclusionMap[canonical] || 'Este necesară confirmare suplimentară înainte de schimbarea strategiei.';
 
     const marketWhat = `Structură: ${canonical}. RSI săptămânal: ${rsi1wC} (${rsiDir} față de ${rsi1wP}). EMA200: ${ema200s}. ETH/BTC: ${relLabel}.`;
     const marketMeaningMap = {
@@ -3034,7 +3034,7 @@ async function fetchData() {
       'SIDEWAYS RANGE': 'Fără avantaj direcțional clar, piața cere răbdare. În astfel de contexte, exagerarea unei mișcări de scurtă durată poate crea mai mult zgomot decât valoare.',
       'RISK-OFF': 'Când condițiile sunt atât de fragile, obiectivul principal devine evitarea expunerii greșite. În astfel de faze, protecția capitalului are prioritate față de căutarea unei oportunități rapide.'
     };
-    const marketMeaning = marketMeaningMap[canonical] || snapshotMeaning;
+    let marketMeaning = marketMeaningMap[canonical] || snapshotMeaning;
     const snapLimitMap = {
       'STRUCTURAL CONFLICT': 'Trendul pe termen lung nu a confirmat încă schimbarea de regim. Semnalele de scurtă durată pot fi zgomot temporar sau pot premerge o schimbare structurală.',
       'WEAKENING': 'Slăbirea nu înseamnă automat breakdown, dar nici nu mai justifică optimismul agresiv. Este nevoie de confirmare pentru a ști dacă piața revine sau cedează mai clar.',
@@ -3047,7 +3047,7 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Nu putem prezice momentul exact al corecției. Structura poate rămâne bullish și în condiții supraextinse pentru o perioadă.',
       'BULL CONFIRMED': 'Contextul este constructiv, dar confirmarea trendului nu elimină riscul unor corecții normale de parcurs.'
     };
-    const snapLimit = snapLimitMap[canonical] || 'Confirmarea completă necesită aliniere pe multiple intervale de timp.';
+    let snapLimit = snapLimitMap[canonical] || 'Confirmarea completă necesită aliniere pe multiple intervale de timp.';
 
     const momCtx = `BTC: ${c7} în ultimele 7 zile, ${c30} în 30 de zile. Față de maximul anual: ${drw}. RSI zilnic: ${rsi1d}. MACD: ${macdTxt}.`;
     const momInterpMap = {
@@ -3089,7 +3089,7 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Nu este un context potrivit pentru a adăuga agresiv risc pe BTC la aceste niveluri.',
       'BULL CONFIRMED': 'Contextul BTC rămâne constructiv, dar disciplina rămâne importantă și într-un trend pozitiv.'
     };
-    const momConclusion = momConclusionMap[canonical] || actionConclusion;
+    let momConclusion = momConclusionMap[canonical] || actionConclusion;
 
     const ethCtx = `ETH: ${fmtPct(eth.change7d)} în 7 zile, ${fmtPct(eth.change30d)} în 30 de zile. ETH/BTC: ${fmtPct(data.rel7d)} în 7 zile. ETH ${ethPerf}.`;
     const ethInterpMap = {
@@ -3147,10 +3147,10 @@ async function fetchData() {
     const relConclusion = relConclusionMap[engine.relState] || relConclusionMap['NEUTRAL'];
 
     const confWhat = `Confidence: ${engine.confidenceLabel || engine.confidence || '—'}. RSI 1W ${rsi1wC} (${rsiDir}), MACD ${macdTxt}, ETH/BTC ${relLabel}.`;
-    const confMeaning = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
+    let confMeaning = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
       ? `Semnalele sunt mai bine aliniate, dar nivelul de încredere trebuie citit împreună cu calitatea confirmărilor. Chiar și într-un context constructiv, încrederea reflectă robustețea setup-ului, nu promisiunea unei mișcări lineare.`
       : `Indicatorii pe termen scurt se pot îmbunătăți sau deteriora, dar semnalele nu sunt încă suficient de aliniate la nivel structural. Conflictul dintre mișcarea recentă a prețului, contextul general și confirmarea din money flow reduce gradul de convingere al semnalului actual. În astfel de condiții, mișcările pot fi mai degrabă temporare și mai puțin predictibile.`;
-    const confConclusion = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
+    let confConclusion = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
       ? 'Încrederea este mai bună, dar continuitatea confirmărilor rămâne esențială.'
       : 'Mai corect este să aștepți o aliniere mai clară a semnalelor înainte de a crește riscul.';
 
@@ -3179,6 +3179,9 @@ async function fetchData() {
       ? (rsiDir === '↑' ? 'Positive and improving' : 'Positive but losing momentum')
       : (rsiDir === '↑' ? 'Still negative, but improving' : 'Negative and weakening');
 
+    let strengtheningMacro = data?.btc?.weekly?.ichimoku?.relation;
+    if (!strengtheningMacro) strengtheningMacro = 'inside cloud';
+
     const marketIndicatorSnapshotHtml = `
       <li><strong>RSI (1W):</strong> ${rsi1wC} (${rsiDir === '↑' ? 'în creștere' : rsiDir === '↓' ? 'în scădere' : 'stabil'})</li>
       <li><strong>MACD (1D):</strong> ${macdSnapshot}</li>
@@ -3198,7 +3201,7 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Trendul rămâne pozitiv, dar piața devine tensionată și mai vulnerabilă la corecții.',
       'BULL CONFIRMED': 'Structura bullish rămâne validată și susținută de majoritatea indicatorilor.'
     };
-    const phaseWhat = phaseWhatMap[canonical] || `Faza actuală: ${canonical}.`;
+    let phaseWhat = phaseWhatMap[canonical] || `Faza actuală: ${canonical}.`;
     const phaseMeaningMap = {
       'STRUCTURAL CONFLICT': 'Piața se află într-o fază de conflict structural, în care semnalele sunt mixte și direcția nu este clar stabilită. Indicatorii de scurtă durată pot sugera o mișcare, dar structura generală nu confirmă încă o direcție coerentă. Această etapă cere răbdare și filtrarea zgomotului, nu concluzii grăbite.',
       'WEAKENING': 'Piața se află într-o fază de slăbire, în care structura începe să se deterioreze, iar mișcarea își pierde din forță. Aceasta nu înseamnă încă breakdown confirmat, dar indică faptul că riscul crește și că trendul devine mai fragil.',
@@ -3211,7 +3214,7 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Piața se află într-o fază bullish matură, în care trendul rămâne pozitiv, dar extensia față de echilibru crește tensiunea internă. În astfel de faze, protejarea unei poziționări bune devine la fel de importantă ca evitarea intrărilor târzii.',
       'BULL CONFIRMED': 'Structura pozitivă este confirmată, iar trendul este susținut de majoritatea indicatorilor. Asta descrie un regim constructiv, nu promisiunea că mișcarea va continua liniar în fiecare zi.'
     };
-    const phaseMeaning = phaseMeaningMap[canonical] || 'Faza actuală cere validări suplimentare înainte de schimbarea atitudinii generale.';
+    let phaseMeaning = phaseMeaningMap[canonical] || 'Faza actuală cere validări suplimentare înainte de schimbarea atitudinii generale.';
     const phaseConclusionMap = {
       'STRUCTURAL CONFLICT': 'Comportamentul potrivit este așteptarea unei alinieri mai curate între macro și micro înainte de a adopta o direcție fermă.',
       'WEAKENING': 'Comportamentul potrivit este reducerea optimismului și monitorizarea atentă a suporturilor și a confirmărilor structurale.',
@@ -3224,7 +3227,53 @@ async function fetchData() {
       'BULL OVEREXTENDED': 'Comportamentul potrivit este disciplina: fără chase, fără creștere agresivă a expunerii și cu atenție sporită la riscul unei corecții normale.',
       'BULL CONFIRMED': 'Comportamentul potrivit este menținerea unei expuneri controlate și monitorizarea atentă a eventualelor semne de slăbire.'
     };
-    const phaseConclusion = phaseConclusionMap[canonical] || actionConclusion;
+    let phaseConclusion = phaseConclusionMap[canonical] || actionConclusion;
+
+    let changedStructure = canonical.includes('BEAR') || canonical === 'STRUCTURAL CONFLICT' || canonical === 'WEAKENING' || canonical === 'BREAKDOWN RISK'
+      ? `Structura arată deteriorare pe intervalul de 7-30 de zile.`
+      : canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
+      ? `Se formează o bază mai solidă pe intervalul de 7 zile.`
+      : `Structura în consolidare — fără direcție clară pe 7 zile.`;
+
+    let levelMeaning = canonical.includes('BEAR') || canonical === 'STRUCTURAL CONFLICT' || canonical === 'WEAKENING' || canonical === 'BREAKDOWN RISK'
+      ? `Performanța negativă pe 7-30 de zile susține contextul de prudență.`
+      : `Performanța pe 7-30 de zile reflectă direcția actuală a trendului.`;
+
+    if (canonical === 'STRENGTHENING') {
+      if (strengtheningMacro === 'below cloud') {
+        marketWhat = 'Se observă o îmbunătățire a indicatorilor pe termen scurt, dar structura macro rămâne negativă.';
+        marketMeaning = 'Se observă o îmbunătățire a indicatorilor pe termen scurt, dar structura macro rămâne negativă. Acest lucru descrie mai degrabă o revenire locală într-un context încă vulnerabil decât începutul unui nou bull confirmat.';
+        snapLimit = 'Nu trata această mișcare ca pe un trend confirmat. Expunerea rămâne controlată până când structura mare se repară clar.';
+        actionConclusion = 'Îmbunătățirea există, dar contextul mare nu justifică încă sizing agresiv.';
+        momInterp = 'Indicatorii pe termen scurt s-au îmbunătățit, dar structura mare rămâne negativă. Mișcarea actuală seamănă mai mult cu o revenire într-un trend descendent decât cu începutul unei reconstrucții validate structural.';
+        momConclusion = 'Nu trata această mișcare ca pe un bull confirmat. BTC arată mai bine local, dar contextul macro rămâne incomplet.';
+        confMeaning = 'Semnalele de scurtă durată se îmbunătățesc, dar alinierea structurală lipsește încă. În astfel de condiții, încrederea trebuie citită ca robustețe locală a rebound-ului, nu ca validare a unui nou regim bullish.';
+        confConclusion = 'Mai corect este să privești strengthening-ul actual ca pe o îmbunătățire tactică, nu ca pe o confirmare completă.';
+        phaseWhat = 'Indicatorii de scurtă durată se îmbunătățesc, dar structura macro rămâne negativă.';
+        phaseMeaning = 'Revenirea există la nivel de momentum și price action, însă contextul mare nu confirmă încă o schimbare reală de regim. În această etapă, strengthening-ul trebuie citit ca o îmbunătățire locală într-un mediu încă vulnerabil.';
+        phaseConclusion = 'Comportamentul potrivit este prudența: urmărești dacă îmbunătățirea continuă și se propagă în structură, fără a trata această fază ca pe un bull validat.';
+        changedStructure = 'Structura se îmbunătățește local pe intervalul de 7 zile, dar contextul macro rămâne negativ și incomplet reparat.';
+        changeMeaning = 'Indicatorii pe termen scurt s-au îmbunătățit, dar schimbarea recentă trebuie citită ca rebound într-un context încă vulnerabil, nu ca dovadă că regimul pieței s-a schimbat deja.';
+        changeConclusion = 'Schimbarea recentă merită urmărită, dar fără a fi tratată ca o confirmare structurală. Expunerea rămâne controlată.';
+        levelMeaning = 'Performanța pe 7-30 de zile arată o îmbunătățire locală, dar nu este încă suficientă pentru a valida un trend bullish curat cât timp structura mare rămâne negativă.';
+      } else if (strengtheningMacro === 'inside cloud') {
+        marketWhat = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară.';
+        marketMeaning = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară. Mișcarea devine mai coerentă, însă nu există încă o confirmare structurală completă.';
+        snapLimit = 'Contextul se îmbunătățește, dar nu justifică încă o expunere agresivă până la ieșirea clară din zona de tranziție.';
+        actionConclusion = 'Este o fază mai bună decât simpla stabilizare, dar confirmarea completă lipsește încă.';
+        momInterp = 'BTC se îmbunătățește într-un context în care structura mare nu a ieșit încă decisiv din zona de incertitudine. Mișcarea este mai coerentă decât un simplu bounce, dar nu este încă un bull curat.';
+        momConclusion = 'Păstrează lectura constructivă, dar fără a confunda strengthening-ul din cloud cu un trend deja confirmat.';
+        confMeaning = 'Semnalele se aliniază mai bine decât în etapele anterioare, dar structura mare rămâne incomplet clarificată. Încrederea este intermediară: suficientă pentru a susține îmbunătățirea, dar nu pentru a valida încă o direcție complet stabilă.';
+        confConclusion = 'Mai corect este să tratezi această fază ca pe o tranziție constructivă, nu ca pe o confirmare finală.';
+        phaseWhat = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară.';
+        phaseMeaning = 'Revenirea capătă consistență, însă faza actuală rămâne una de tranziție. Contextul este mai bun decât în stabilizare sau recovery attempt, dar încă nu oferă o confirmare structurală completă.';
+        phaseConclusion = 'Comportamentul potrivit este prudența constructivă: urmărești continuitatea confirmărilor fără a forța concluzia că trendul este deja validat.';
+        changedStructure = 'Structura se îmbunătățește pe termen scurt, dar rămâne într-o zonă de tranziție fără direcție clară complet validată.';
+        changeMeaning = 'Indicatorii pe termen scurt se îmbunătățesc, însă schimbarea recentă trebuie judecată într-un context structural încă incomplet. Este mai mult decât un bounce simplu, dar încă sub nivelul unui trend pe deplin confirmat.';
+        changeConclusion = 'Schimbarea recentă susține o tranziție constructivă, dar are nevoie de confirmare structurală suplimentară înainte de a justifica o atitudine mai agresivă.';
+        levelMeaning = 'Performanța pe 7-30 de zile susține o îmbunătățire a contextului, dar structura mare este încă în tranziție și nu validează complet un trend bullish stabil.';
+      }
+    }
 
     return {
       header,
@@ -3248,9 +3297,7 @@ async function fetchData() {
       },
       level: {
         what:       `Evoluție BTC: 3 zile ${c3} | 7 zile ${c7} | 30 zile ${c30} | Față de maximul anului: ${drw}.`,
-        meaning:    canonical.includes('BEAR') || canonical === 'STRUCTURAL CONFLICT' || canonical === 'WEAKENING' || canonical === 'BREAKDOWN RISK'
-          ? `Performanța negativă pe 7-30 de zile susține contextul de prudență.`
-          : `Performanța pe 7-30 de zile reflectă direcția actuală a trendului.`,
+        meaning:    levelMeaning,
         conclusion: actionConclusion
       },
       phase: {
@@ -3655,12 +3702,22 @@ async function fetchData() {
     }
 
     if (state === 'STRENGTHENING') {
-      if (stateDuration === 1) {
-        target = 65;
-        notes.push('Execution memory: strengthening în prima zi. Menținem expunere moderată până la persistență reală.');
+      const strengtheningMacro = data?.btc?.weekly?.ichimoku?.relation || 'inside cloud';
+
+      if (strengtheningMacro === 'below cloud') {
+        target = 55;
+        notes.push('Execution clamp: strengthening apare sub cloud. Îmbunătățirea este locală, nu structurală; expunerea rămâne plafonată la 55%.');
+      } else if (strengtheningMacro === 'inside cloud') {
+        target = stateDuration === 1 ? 60 : 65;
+        notes.push('Execution clamp: strengthening apare în cloud. Contextul se îmbunătățește, dar confirmarea structurală este incompletă; expunerea rămâne plafonată la 65%.');
       } else {
-        target = engine.btcAbove50 ? 80 : 70;
-        notes.push('Execution memory: strengthening persistent. Re-entry-ul poate urca spre 70–80% dacă BTC susține mișcarea.');
+        if (stateDuration === 1) {
+          target = 65;
+          notes.push('Execution memory: strengthening în prima zi. Menținem expunere moderată până la persistență reală.');
+        } else {
+          target = engine.btcAbove50 ? 80 : 70;
+          notes.push('Execution memory: strengthening persistent. Re-entry-ul poate urca spre 70–80% dacă BTC susține mișcarea.');
+        }
       }
     }
 
@@ -4300,7 +4357,7 @@ function renderDashboard(data, engine) {
       html: `
         <div class="doc-sections">
           <div class="doc-section">
-            <h3>What CryptoRisk V10.7.6 is</h3>
+            <h3>What CryptoRisk V10.7.7.2 is</h3>
             <p>CryptoRisk este un sistem de risk management pentru crypto. Nu este un sistem de trading și nu încearcă să prindă topul sau bottom-ul perfect.</p>
             <p>Scopul lui este să reducă expunerea în zonele de risc, să detecteze schimbările structurale din timp și să transforme semnalele într-o decizie de portofoliu clară.</p>
           </div>
@@ -5174,6 +5231,27 @@ function buildChangelogPanel() {
 
 <div class="changelog-entry">
   <div class="meta">Current</div>
+  <h3>V10.7.7.2 — Full strengthening alignment across Changed / Levels / Lite-safe</h3>
+  <p>Patch de aliniere completă peste V10.7.7.1 care verifică toate zonele afectate de Varianta B și elimină discrepanțele rămase din What’s Changed și BTC Key Levels, fără să modifice engine-ul sau logica LITE.</p>
+  <ul>
+    <li><strong>Varianta B</strong> implementată în execution: STRENGTHENING rămâne același stat, dar target exposure este plafonat contextual:
+      <ul>
+        <li><strong>above cloud</strong> → comportament actual păstrat</li>
+        <li><strong>inside cloud</strong> → plafon 65%</li>
+        <li><strong>below cloud</strong> → plafon 55%</li>
+      </ul>
+    </li>
+    <li>Commentary alignment pentru STRENGTHENING în <strong>Current Market State</strong>, <strong>BTC</strong>, <strong>Confidence</strong> și <strong>Market Phase</strong>, astfel încât îmbunătățirea locală să nu mai fie prezentată ca bull curat când structura mare nu confirmă.</li>
+    <li>What’s Changed este acum aliniat contextual pentru <strong>STRENGTHENING</strong> în cazurile <strong>inside cloud</strong> și <strong>below cloud</strong>, astfel încât subcardul Structure și commentary-ul să nu mai sune prea optimist.</li>
+    <li>BTC Key Levels &amp; Confluence este aliniat cu noua realitate de execution pentru strengthening în contexte macro incomplete.</li>
+    <li>Verificare LITE-safe: patch-ul nu schimbă state machine-ul, nu schimbă target exposure outside PRO logic și nu introduce ramuri noi în summary / lite verdict derivation.</li>
+    <li>Guardrails din V10.7.7.1 rămân active: sursă unificată pentru strengtheningMacro și fallback sigur la <strong>inside cloud</strong>.</li>
+    <li>Nu modifică engine-ul, state machine-ul, phase mapping-ul sau logica celorlalte stări.</li>
+  </ul>
+</div>
+
+<div class="changelog-entry">
+  <div class="meta">Previous</div>
   <h3>V10.7.6 — Indicator Snapshot clarity</h3>
   <p>Upgrade peste V10.7.5 care păstrează engine-ul, execution layer și modificatorii de commentary, dar face vizibil motivul pentru care sistemul vede starea curentă.</p>
   <ul>
@@ -5543,6 +5621,21 @@ function backfillJournal(engineRunner) {
   // ═══════════════════════════════════════════════════════════
   // CHANGELOG — CryptoRisk Dashboard
   // ═══════════════════════════════════════════════════════════
+  //
+  // V10.7.7.2 — Full strengthening alignment across Changed / Levels / Lite-safe
+  //   - What’s Changed și BTC Key Levels aliniate contextual pentru STRENGTHENING în inside / below cloud
+  //   - verificare LITE-safe: fără modificări de logică în derivarea summary/verdict, doar aliniere a textelor sursă capturate
+  //
+  // V10.7.7.1 — Strengthening clamp hardening & guardrails
+  //   - strengtheningMacro unificat pe data.btc.weekly.ichimoku.relation în commentary
+  //   - fallback sigur la inside cloud când contextul Ichimoku nu este disponibil
+  //   - Current Market State aliniat mai clar pentru STRENGTHENING în contexte inside / below cloud
+  //
+  // V10.7.7 — Strengthening execution clamp & commentary alignment
+  //   - Varianta B implementată în execution pentru STRENGTHENING:
+  //     above cloud = comportament actual, inside cloud = cap 65%, below cloud = cap 55%
+  //   - Commentary alignment pentru STRENGTHENING în contexte inside / below cloud
+  //   - Engine și state machine rămân neschimbate
   //
   // V10.7.6 — Indicator Snapshot clarity
   //   - Added Current Market State subcard: RSI (1W), MACD (1D), Ichimoku (1W), ETH vs BTC, current canonical state
