@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>CryptoRisk Dashboard — V10.7.7.2</title>
+<title>CryptoRisk Dashboard — V10.7.7.3</title>
 <style>
     :root {
       --bg: #0b1020;
@@ -1198,8 +1198,8 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V10.7.7.2</h1>
-<div class="subtitle">Engine V10.7.7.2 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
+<h1>CryptoRisk Dashboard — V10.7.7.3</h1>
+<div class="subtitle">Engine V10.7.7.3 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
 </div>
@@ -4357,7 +4357,7 @@ function renderDashboard(data, engine) {
       html: `
         <div class="doc-sections">
           <div class="doc-section">
-            <h3>What CryptoRisk V10.7.7.2 is</h3>
+            <h3>What CryptoRisk V10.7.7.3 is</h3>
             <p>CryptoRisk este un sistem de risk management pentru crypto. Nu este un sistem de trading și nu încearcă să prindă topul sau bottom-ul perfect.</p>
             <p>Scopul lui este să reducă expunerea în zonele de risc, să detecteze schimbările structurale din timp și să transforme semnalele într-o decizie de portofoliu clară.</p>
           </div>
@@ -5231,8 +5231,8 @@ function buildChangelogPanel() {
 
 <div class="changelog-entry">
   <div class="meta">Current</div>
-  <h3>V10.7.7.2 — Full strengthening alignment across Changed / Levels / Lite-safe</h3>
-  <p>Patch de aliniere completă peste V10.7.7.1 care verifică toate zonele afectate de Varianta B și elimină discrepanțele rămase din What’s Changed și BTC Key Levels, fără să modifice engine-ul sau logica LITE.</p>
+  <h3>V10.7.7.3 — Commentary runtime fix for strengthening overrides</h3>
+  <p>Patch mic și obligatoriu peste V10.7.7.2 care elimină eroarea de runtime din buildNarrative atunci când override-urile pentru STRENGTHENING reasignau variabile declarate anterior cu const.</p>
   <ul>
     <li><strong>Varianta B</strong> implementată în execution: STRENGTHENING rămâne același stat, dar target exposure este plafonat contextual:
       <ul>
@@ -5242,11 +5242,9 @@ function buildChangelogPanel() {
       </ul>
     </li>
     <li>Commentary alignment pentru STRENGTHENING în <strong>Current Market State</strong>, <strong>BTC</strong>, <strong>Confidence</strong> și <strong>Market Phase</strong>, astfel încât îmbunătățirea locală să nu mai fie prezentată ca bull curat când structura mare nu confirmă.</li>
-    <li>What’s Changed este acum aliniat contextual pentru <strong>STRENGTHENING</strong> în cazurile <strong>inside cloud</strong> și <strong>below cloud</strong>, astfel încât subcardul Structure și commentary-ul să nu mai sune prea optimist.</li>
-    <li>BTC Key Levels &amp; Confluence este aliniat cu noua realitate de execution pentru strengthening în contexte macro incomplete.</li>
-    <li>Verificare LITE-safe: patch-ul nu schimbă state machine-ul, nu schimbă target exposure outside PRO logic și nu introduce ramuri noi în summary / lite verdict derivation.</li>
-    <li>Guardrails din V10.7.7.1 rămân active: sursă unificată pentru strengtheningMacro și fallback sigur la <strong>inside cloud</strong>.</li>
-    <li>Nu modifică engine-ul, state machine-ul, phase mapping-ul sau logica celorlalte stări.</li>
+    <li>Fix critic: <strong>marketWhat</strong>, <strong>changeMeaning</strong> și <strong>changeConclusion</strong> sunt acum mutabile acolo unde override-urile pentru STRENGTHENING le reasignează.</li>
+    <li>Elimină riscul de eroare JavaScript de tip <strong>Assignment to constant variable</strong> în cazurile <strong>inside cloud</strong> și <strong>below cloud</strong>.</li>
+    <li>Nu modifică engine-ul, state machine-ul, phase mapping-ul, Varianta B în execution sau logica LITE.</li>
   </ul>
 </div>
 
@@ -5621,6 +5619,10 @@ function backfillJournal(engineRunner) {
   // ═══════════════════════════════════════════════════════════
   // CHANGELOG — CryptoRisk Dashboard
   // ═══════════════════════════════════════════════════════════
+  //
+  // V10.7.7.3 — Commentary runtime fix for strengthening overrides
+  //   - marketWhat, changeMeaning și changeConclusion devin mutabile pentru override-urile STRENGTHENING
+  //   - elimină riscul de Assignment to constant variable în inside / below cloud
   //
   // V10.7.7.2 — Full strengthening alignment across Changed / Levels / Lite-safe
   //   - What’s Changed și BTC Key Levels aliniate contextual pentru STRENGTHENING în inside / below cloud
