@@ -1449,6 +1449,31 @@
 <div class="phase-line" id="recoveryPath"></div>
 </div>
 </article>
+<article class="card full-width" id="v11-context" style="display:none">
+<div class="card-head">
+<h2>Market Context — V11</h2>
+<span class="badge orange" id="v11-macro-label">Ichimoku: —</span>
+</div>
+<div class="card-body">
+<div class="commentary">
+<div class="block">
+  <div class="label" id="v11-label" style="font-weight:600;color:var(--warn,#f59e0b);">—</div>
+</div>
+<div class="block">
+  <div class="label">Ce observăm</div>
+  <p id="v11-what">—</p>
+</div>
+<div class="block">
+  <div class="label">Ce înseamnă</div>
+  <p id="v11-meaning">—</p>
+</div>
+<div class="block">
+  <div class="label">Concluzie</div>
+  <p id="v11-conclusion">—</p>
+</div>
+</div>
+</div>
+</article>
 <div aria-hidden="true" class="doc-overlay" id="docOverlay">
 <div aria-labelledby="docPanelTitle" aria-modal="true" class="doc-panel" role="dialog">
 <div class="doc-head">
@@ -1517,10 +1542,328 @@
   let countdownInterval = null;
   let autosyncInterval = null;
 
+  // ═══════════════════════════════════════════════════════════
+  // V11 CONTEXT LAYER — State persistentă
+  // Engine rămâne 100% neatins. V11 citește read-only.
+  // ═══════════════════════════════════════════════════════════
+  let v11State = {
+    oeEpisode: {
+      active: false,
+      entryPrice: null,
+      entryDate: null,
+      maxPriceInEpisode: null,
+      dayCount: 0,
+      newHighTriggered: false,
+      newHighDate: null,
+    },
+    bearContext: {
+      bearStartDate: null,
+      btcATH: 0,
+    },
+    correctionContext: {
+      active: false,
+      startDate: null,
+      startPrice: null,
+      minPrice: null,
+      ichimokuAtStart: null,
+    }
+  };
+
+  // Actualizare ATH + reset bear start la nou ATH
+  function updateBtcATH(btcPrice) {
+    if (btcPrice > v11State.bearContext.btcATH) {
+      v11State.bearContext.btcATH = btcPrice;
+      v11State.bearContext.bearStartDate = null;
+    }
+  }
+
+  // Setare bear start date când intrăm în bear activ
+  function updateBearStartDate(ichimokuRelation, canonical) {
+    if (ichimokuRelation === 'below cloud' &&
+        ['BEAR CONFIRMED','BREAKDOWN RISK'].includes(canonical) &&
+        !v11State.bearContext.bearStartDate) {
+      v11State.bearContext.bearStartDate = new Date().toISOString().split('T')[0];
+    }
+  }
+
+  // ── Bloc C: Calculator de context (nu bloc independent)
+  function getAccumulationContext(btcPrice, ichimokuRelation) {
+    const ath = v11State.bearContext.btcATH;
+    const bearStartDate = v11State.bearContext.bearStartDate;
+    const drawdownPct = ath > 0 ? ((ath - btcPrice) / ath * 100) : 0;
+    const bearDays = bearStartDate
+      ? Math.floor((Date.now() - new Date(bearStartDate).getTime()) / 86400000)
+      : 0;
+    const bearMonths = bearDays / 30;
+    return {
+      drawdownPct,
+      bearMonths,
+      isAdvancedAccum: drawdownPct > 50 && bearMonths > 6,
+      isDeepBear: drawdownPct > 40 && bearMonths > 4,
+      ichimokuTransition: ichimokuRelation === 'inside cloud',
+    };
+  }
+
+  // ── Bloc A: OE Watchdog
+  function deriveBlocA(canonical, btcPrice) {
+    const oe = v11State.oeEpisode;
+    if (canonical === 'BULL OVEREXTENDED') {
+      if (!oe.active) {
+        oe.active = true;
+        oe.entryPrice = btcPrice;
+        oe.entryDate = new Date().toISOString().split('T')[0];
+        oe.maxPriceInEpisode = btcPrice;
+        oe.dayCount = 0;
+        oe.newHighTriggered = false;
+        oe.newHighDate = null;
+      } else {
+        oe.dayCount++;
+        if (btcPrice > oe.maxPriceInEpisode) oe.maxPriceInEpisode = btcPrice;
+        if (!oe.newHighTriggered && oe.dayCount <= 14) {
+          if (oe.maxPriceInEpisode > oe.entryPrice * 1.03) {
+            oe.newHighTriggered = true;
+            oe.newHighDate = new Date().toISOString().split('T')[0];
+          }
+        }
+      }
+    } else {
+      if (oe.active) {
+        oe.active = false;
+        oe.entryPrice = null;
+        oe.maxPriceInEpisode = null;
+        oe.dayCount = 0;
+        oe.newHighTriggered = false;
+      }
+    }
+    if (!oe.active) return { active: false };
+    return {
+      active: true,
+      tipB: oe.newHighTriggered,
+      dayCount: oe.dayCount,
+      maxVsEntry: oe.entryPrice > 0 ? ((oe.maxPriceInEpisode - oe.entryPrice) / oe.entryPrice * 100).toFixed(1) : '0',
+      entryPrice: oe.entryPrice,
+      newHighDate: oe.newHighDate,
+    };
+  }
+
+  function getBlocANarrative(blocA) {
+    if (!blocA.active) return null;
+    if (blocA.tipB) {
+      return {
+        label: 'OE Context — Bull Extins',
+        what: `BTC a continuat să urce după intrarea în OE (+${blocA.maxVsEntry}% față de intrare). Episod activ: ${blocA.dayCount} zile.`,
+        meaning: 'BTC urcă fără confirmarea ETH. Aceasta descrie un bull extins, nu neapărat un top iminent. Istoric, episoade similare au continuat semnificativ (2017: +97%, 2019: +39%).',
+        conclusion: 'Nu adaugi agresiv. Nu tratezi OE ca semnal de ieșire. Protejezi profitul existent.'
+      };
+    }
+    return {
+      label: 'OE Context — Fără Maxime Noi',
+      what: `BTC nu a mai făcut maxime noi de ${blocA.dayCount} zile în OE (max: +${blocA.maxVsEntry}% față de intrare).`,
+      meaning: 'Când bull-ul continuă fără noi maxime în OE, iar ETH rămâne relativ slab, topul poate fi deja format sau foarte aproape.',
+      conclusion: 'Riscul de tranziție spre slăbire crește. Protecția capitalului devine prioritară.'
+    };
+  }
+
+  // ── Bloc B: Bear Context Filter
+  function deriveBlocB(canonical, ichimokuRelation, btcPrice) {
+    const iBelow  = ichimokuRelation === 'below cloud';
+    const iInside = ichimokuRelation === 'inside cloud';
+    const optimistStates = ['STRENGTHENING','BULL CONFIRMED','BULL OVEREXTENDED','RECOVERY ATTEMPT'];
+
+    const trigger1 = iBelow  && canonical === 'STRENGTHENING';
+    const trigger2 = iInside && optimistStates.includes(canonical);
+
+    if (!trigger1 && !trigger2) return { active: false };
+
+    const accumCtx = getAccumulationContext(btcPrice, ichimokuRelation);
+    return {
+      active: true,
+      trigger: trigger1 ? 'below' : 'inside',
+      isAdvancedAccum: accumCtx.isAdvancedAccum,
+      drawdownPct: accumCtx.drawdownPct.toFixed(1),
+      bearMonths: accumCtx.bearMonths.toFixed(0),
+    };
+  }
+
+  function getBlocBNarrative(blocB) {
+    if (!blocB.active) return null;
+    if (blocB.trigger === 'below') {
+      return {
+        label: 'Context Macro Negativ',
+        what: 'Mișcarea actuală apare cu Ichimoku 1W sub cloud.',
+        meaning: 'Nu este confirmată structural și poate reprezenta un rally temporar. Semnalele pozitive de scurtă durată sunt frecvente în faze de bear.',
+        conclusion: 'Contextul macro negativ nu a fost invalidat. Prudența rămâne justificată.'
+      };
+    }
+    // inside cloud
+    if (blocB.isAdvancedAccum) {
+      return {
+        label: 'Tranziție Macro în Curs',
+        what: `Piața se află în zona cloud după ${blocB.bearMonths} luni de scădere (${blocB.drawdownPct}% sub maximul atins).`,
+        meaning: 'Primele semnale de îmbunătățire apar după o perioadă extinsă de slăbiciune. Contextul este mai favorabil decât în bear-ul activ.',
+        conclusion: 'Confirmarea structurală (Ichimoku above cloud) rămâne necesară înainte de expunere crescută.'
+      };
+    }
+    return {
+      label: 'Context Macro în Tranziție — Fragil',
+      what: 'Piața se află în zona cloud (tranziție macro). Mișcarea optimistă apare după o perioadă recentă de slăbiciune.',
+      meaning: 'Contextul macro rămâne fragil. Tranziții similare au coincis frecvent cu bull traps în faze de recuperare incipientă.',
+      conclusion: 'Validarea structurală lipsește. Prudență sporită justificată.'
+    };
+  }
+
+  // ── Bloc D: Correction Types (commentary evolutiv)
+  function deriveBlocD(canonical, ichimokuRelation, btcPrice) {
+    const corrStates = ['WEAKENING','BREAKDOWN RISK','STRUCTURAL WEAKNESS','STRUCTURAL CONFLICT'];
+    const inCorrection = corrStates.includes(canonical);
+
+    if (!inCorrection) {
+      if (v11State.correctionContext.active) {
+        v11State.correctionContext = { active: false, startDate: null, startPrice: null, minPrice: null, ichimokuAtStart: null };
+      }
+      return { active: false };
+    }
+
+    const ctx = v11State.correctionContext;
+    if (!ctx.active) {
+      ctx.active = true;
+      ctx.startDate = new Date().toISOString().split('T')[0];
+      ctx.startPrice = btcPrice;
+      ctx.minPrice = btcPrice;
+      ctx.ichimokuAtStart = ichimokuRelation;
+    } else {
+      if (btcPrice < ctx.minPrice) ctx.minPrice = btcPrice;
+    }
+
+    const dayCount = ctx.startDate
+      ? Math.floor((Date.now() - new Date(ctx.startDate).getTime()) / 86400000)
+      : 0;
+    const weekCount = Math.max(0, Math.floor(dayCount / 7));
+    const drawdownInCorr = ctx.startPrice > 0
+      ? ((ctx.startPrice - ctx.minPrice) / ctx.startPrice * 100).toFixed(1)
+      : '0';
+
+    // Slow bleed (below cloud de la start) — acoperit de Bloc B, Bloc D nu dublează
+    if (ctx.ichimokuAtStart === 'below cloud') {
+      return { active: false };
+    }
+
+    let corrType = 'early';
+    if (dayCount >= 28) {
+      if (ichimokuRelation === 'above cloud' && ctx.ichimokuAtStart === 'above cloud') {
+        corrType = 'healthy_or_sideways';
+      } else if (ichimokuRelation === 'inside cloud' || ichimokuRelation === 'below cloud') {
+        corrType = 'breakdown';
+      }
+    }
+
+    return { active: true, corrType, weekCount, dayCount, drawdownInCorr, ichimokuNow: ichimokuRelation, ichimokuAtStart: ctx.ichimokuAtStart };
+  }
+
+  function getBlocDNarrative(blocD) {
+    if (!blocD.active) return null;
+    const { corrType, weekCount, drawdownInCorr, ichimokuNow, ichimokuAtStart } = blocD;
+    const wLabel = weekCount <= 1 ? 'prima săptămână' : `săptămâna ${weekCount}`;
+
+    if (corrType === 'early') {
+      return {
+        label: 'Corecție în Curs — Context Intact',
+        what: `Corecție de -${drawdownInCorr}%, ${wLabel} de slăbiciune. Ichimoku rămâne ${ichimokuAtStart}.`,
+        meaning: 'Contextul macro susține că trendul principal este intact. Slăbiciunea actuală este comună în bull markets și nu indică implicit o schimbare de trend.',
+        conclusion: 'Prea devreme pentru clasificare. Evoluția Ichimoku în săptămânile 4-8 va clarifica tipul corecției.'
+      };
+    }
+    if (corrType === 'healthy_or_sideways') {
+      return {
+        label: 'Corecție în Trend Intact',
+        what: `Corecție de -${drawdownInCorr}% în ${wLabel}. Ichimoku rămâne above cloud pe tot parcursul.`,
+        meaning: 'Structura macro bullish rămâne intactă. Corecții de această natură apar frecvent în bull markets sănătoase și nu invalidează trendul principal.',
+        conclusion: 'Trendul principal nu este invalidat. Corecțiile cu Ichimoku intact pot fi oportunități de repoziționare graduală.'
+      };
+    }
+    if (corrType === 'breakdown') {
+      const ichNowLabel = ichimokuNow === 'inside cloud' ? 'zona cloud' : 'sub cloud';
+      return {
+        label: 'Deteriorare Macro în Curs',
+        what: `Corecție de -${drawdownInCorr}% în ${wLabel}. Ichimoku a intrat în ${ichNowLabel} (era ${ichimokuAtStart}).`,
+        meaning: 'Structura macro se deteriorează. Corecțiile cu tranziție Ichimoku marchează frecvent mai mult decât un pullback normal.',
+        conclusion: 'Prudență sporită justificată. Probabilitatea de continuare a slăbiciunii crește odată cu deteriorarea Ichimoku.'
+      };
+    }
+    return null;
+  }
+
+  // ── Bloc E: Regime Layer (context ambient, nu bloc independent)
+  function deriveBlocE(ichimokuRelation) {
+    const zone = ichimokuRelation === 'above cloud' ? 'above'
+               : ichimokuRelation === 'below cloud' ? 'below'
+               : 'inside';
+    const macroLabel = zone === 'above'  ? 'Ichimoku 1W: tendință macro pozitivă'
+                     : zone === 'below'  ? 'Ichimoku 1W: tendință macro negativă'
+                     : 'Ichimoku 1W: tranziție macro (cloud)';
+    return { zone, macroLabel };
+  }
+
+  // ── Wrapper principal V11
+  function deriveV11Context(canonical, ichimokuRelation, btcPrice) {
+    updateBtcATH(btcPrice);
+    updateBearStartDate(ichimokuRelation, canonical);
+
+    const blocA = deriveBlocA(canonical, btcPrice);
+    const blocB = deriveBlocB(canonical, ichimokuRelation, btcPrice);
+    const blocD = deriveBlocD(canonical, ichimokuRelation, btcPrice);
+    const blocE = deriveBlocE(ichimokuRelation);
+
+    // Bloc C nu are trigger propriu — e context pentru Bloc B + narrative STABILIZATION
+    const accumCtx = (canonical === 'STABILIZATION' && (ichimokuRelation === 'below cloud' || ichimokuRelation === 'inside cloud'))
+      ? getAccumulationContext(btcPrice, ichimokuRelation)
+      : null;
+
+    return { blocA, blocB, blocD, blocE, accumCtx };
+  }
+
+  // ── Narrative V11 (prioritate A > B > D > C)
+  function buildV11Narrative(v11) {
+    const { blocA, blocB, blocD, blocE, accumCtx } = v11;
+    let primary = null;
+
+    if (blocA.active) primary = getBlocANarrative(blocA);
+    else if (blocB.active) primary = getBlocBNarrative(blocB);
+    else if (blocD.active) primary = getBlocDNarrative(blocD);
+    else if (accumCtx && accumCtx.isDeepBear) {
+      primary = {
+        label: 'Context de Acumulare Posibilă',
+        what: `Piața se stabilizează la ${accumCtx.drawdownPct.toFixed(0)}% sub maximul atins, după ${accumCtx.bearMonths.toFixed(0)} luni de scădere.`,
+        meaning: 'Ichimoku sugerează o potențială tranziție macro. Condițiile sunt compatibile cu o fază de acumulare, fără confirmare structurală.',
+        conclusion: 'Contextul nu justifică agresivitate, dar semnalele de capitulare s-au redus. Confirmarea structurală (Ichimoku above cloud) rămâne necesară.'
+      };
+    }
+
+    return { primary, macroLabel: blocE.macroLabel };
+  }
+
+  // ── Actualizare UI subcard V11
+  function updateV11UI(v11Narrative) {
+    const card = document.getElementById('v11-context');
+    if (!card) return;
+    if (!v11Narrative.primary) {
+      card.style.display = 'none';
+    } else {
+      card.style.display = 'block';
+      const el = id => document.getElementById(id);
+      if (el('v11-macro-label')) el('v11-macro-label').textContent = v11Narrative.macroLabel || '';
+      if (el('v11-label'))       el('v11-label').textContent       = v11Narrative.primary.label || '';
+      if (el('v11-what'))        el('v11-what').textContent        = v11Narrative.primary.what || '';
+      if (el('v11-meaning'))     el('v11-meaning').textContent     = v11Narrative.primary.meaning || '';
+      if (el('v11-conclusion'))  el('v11-conclusion').textContent  = v11Narrative.primary.conclusion || '';
+    }
+  }
+  // ── Sfârşit V11 Context Layer ─────────────────────────────
+
   const API = {
-    spot24h: symbol => `https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
-    klines: (symbol, interval, limit) => `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
-    klinesRange: (symbol, interval, startTime, endTime, limit = 1000) => `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=${limit}`,
+    spot24h: symbol => `https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}`,
+    klines: (symbol, interval, limit) => `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    klinesRange: (symbol, interval, startTime, endTime, limit = 1000) => `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=${limit}`,
     cgMarkets: ids => `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&price_change_percentage=7d`,
     cgChart: (id, days = 370) => `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}&interval=daily`
   };
@@ -1638,9 +1981,22 @@
   }
 
   async function getJSON(url) {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    return await res.json();
+    // Fallback: dacă data-api.binance.vision eșuează, încearcă api3.binance.com
+    const urls = url.includes('data-api.binance.vision')
+      ? [url, url.replace('data-api.binance.vision', 'api3.binance.com')]
+      : [url];
+    let lastErr;
+    for (const u of urls) {
+      try {
+        const res = await fetch(u, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status} for ${u}`);
+        return await res.json();
+      } catch (e) {
+        console.warn('[CryptoRisk] fetch failed for', u, '—', e.message);
+        lastErr = e;
+      }
+    }
+    throw lastErr;
   }
 
   async function fetchSymbol(symbol) {
@@ -3019,7 +3375,7 @@ async function fetchData() {
     const snapshotMeaning = snapshotMeaningMap[canonical] || `${stateIntro[canonical] || 'Contextul pieței cere confirmări suplimentare.'}`;
     let actionConclusion = actionConclusionMap[canonical] || 'Este necesară confirmare suplimentară înainte de schimbarea strategiei.';
 
-    const marketWhat = `Structură: ${canonical}. RSI săptămânal: ${rsi1wC} (${rsiDir} față de ${rsi1wP}). EMA200: ${ema200s}. ETH/BTC: ${relLabel}.`;
+    let marketWhat = `Structură: ${canonical}. RSI săptămânal: ${rsi1wC} (${rsiDir} față de ${rsi1wP}). EMA200: ${ema200s}. ETH/BTC: ${relLabel}.`;
     const marketMeaningMap = {
       'STRUCTURAL CONFLICT': 'Structura mare și semnalele de scurtă durată nu transmit aceeași poveste. Acest lucru înseamnă că piața poate genera mișcări contradictorii, fără ca una dintre ele să fie încă suficient de puternică pentru a defini noul regim.',
       'WEAKENING': 'Slăbirea este vizibilă, dar nu este încă echivalentă cu breakdown confirmat. Piața pierde consistență, iar optimismul trebuie redus înainte ca deteriorarea să devină complet structurală.',
@@ -3155,10 +3511,10 @@ async function fetchData() {
       : 'Mai corect este să aștepți o aliniere mai clară a semnalelor înainte de a crește riscul.';
 
     const changeWhat = `BTC: ${c7} în 7 zile, ${c30} în 30 de zile. Față de maximul anual: ${drw}. RSI săptămânal: ${rsi1wP} → ${rsi1wC} ${rsiDir}.`;
-    const changeMeaning = engine.macdBull
+    let changeMeaning = engine.macdBull
       ? 'Indicatorii pe termen scurt s-au îmbunătățit, iar prețul a recuperat o parte din mișcarea recentă. Cu toate acestea, schimbarea actuală trebuie judecată în contextul structurii mari, nu doar al reacției de moment.'
       : 'Indicatorii pe termen scurt rămân fragili sau s-au deteriorat, ceea ce sugerează că schimbarea recentă nu este suficientă pentru a modifica singură regimul pieței.';
-    const changeConclusion = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
+    let changeConclusion = canonical === 'BULL CONFIRMED' || canonical === 'STRENGTHENING'
       ? 'Schimbarea recentă susține scenariul constructiv, dar merită urmărit dacă îmbunătățirea persistă și este confirmată și structural.'
       : canonical === 'RECOVERY ATTEMPT' || canonical === 'BEAR EXHAUSTION'
       ? 'Schimbarea recentă poate susține doar o revenire tactică; fără validare structurală, nu este suficientă pentru a declara schimbare de trend.'
@@ -4069,6 +4425,14 @@ function renderDashboard(data, engine) {
     const execution = deriveExecution(data, engine);
     const text = buildNarrative(data, engine, confluence, execution);
 
+    // ── V11 Context Layer (read-only peste engine) ────────────
+    const _v11Canonical = mapToCanonicalState(engine.detailed, engine.simplified);
+    const _v11Ichimoku  = (btc.weekly && btc.weekly.ichimoku && btc.weekly.ichimoku.relation) || 'inside cloud';
+    const _v11Ctx       = deriveV11Context(_v11Canonical, _v11Ichimoku, btc.price);
+    const _v11Nar       = buildV11Narrative(_v11Ctx);
+    updateV11UI(_v11Nar);
+    // ── sfârşit V11 ───────────────────────────────────────────
+
     const dt = data.fetchedAt;
     const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const dateStr = dt.toLocaleDateString('ro-RO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -4290,6 +4654,9 @@ function renderDashboard(data, engine) {
     setText('phaseConclusion', 'Reia citirea fazei doar după ce dashboardul revine în mod normal.');
     renderPhasePath('bearPath', ['STRUCTURAL CONFLICT', 'WEAKENING', 'BREAKDOWN RISK', 'BEAR CONFIRMED', 'BEAR EXHAUSTION'], '', '');
     renderPhasePath('recoveryPath', ['STABILIZATION', 'RECOVERY ATTEMPT', 'STRENGTHENING', 'BULL OVEREXTENDED', 'BULL CONFIRMED'], '', '');
+    // V11: ascundem cardul context în mod degraded
+    const _v11card = document.getElementById('v11-context');
+    if (_v11card) _v11card.style.display = 'none';
   }
 
   function startCountdown() {
@@ -4345,9 +4712,11 @@ function renderDashboard(data, engine) {
       resetCountdown();
       startCountdown();
     } catch (err) {
-      console.error(err);
+      console.error('[CryptoRisk] Eroare sync:', err && err.message ? err.message : err);
+      console.error('[CryptoRisk] Stack:', err && err.stack ? err.stack : 'N/A');
       document.getElementById('syncChip').textContent = '✕ EROARE SYNC';
-      document.getElementById('headerMessage').textContent = 'Nu am putut încărca datele live. Verifică conexiunea sau încearcă din nou.';
+      const errMsg = err && err.message ? err.message : String(err);
+      document.getElementById('headerMessage').textContent = 'Eroare: ' + errMsg + ' — Deschide Console (F12) pentru detalii.';
     }
   }
 
