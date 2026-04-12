@@ -1533,7 +1533,7 @@
 </div>
 </div>
 </div>
-<div class="bottom-docbar"><button class="action-btn" id="guideBottomBtn" type="button">Guide</button><button class="action-btn" id="changelogBottomBtn" type="button">Changelog</button><button class="action-btn" id="replayBottomBtn" type="button" onclick="openDocOverlay('replay')">Replay 2024→Present</button></div><div class="footer-note">Demo simplificat: state engine + confidence engine + EMA50 ca filtru structural secundar. Nu reprezintă performanță live sau acuratețe garantată.</div>
+<div class="bottom-docbar"><button class="action-btn" id="guideBottomBtn" type="button">Guide</button><button class="action-btn" id="changelogBottomBtn" type="button">Changelog</button><button class="action-btn" id="replayBottomBtn" type="button" onclick="openDocOverlay('replay')">Replay Full History</button></div><div class="footer-note">Demo simplificat: state engine + confidence engine + EMA50 ca filtru structural secundar. Nu reprezintă performanță live sau acuratețe garantată.</div>
 </div>
 <script>
   const AUTO_SYNC_SECONDS = 300;
@@ -1547,6 +1547,7 @@
   // Engine rămâne 100% neatins. V11 citește read-only.
   // ═══════════════════════════════════════════════════════════
   let v11State = {
+    _blocBRecentDays: 0,  // memorie tranziție Bloc B → CONFIRMED_RECOVERY
     oeEpisode: {
       active: false,
       entryPrice: null,
@@ -1569,6 +1570,65 @@
     }
   };
 
+  const v11RuntimeClock = { nowMs: null, isoDate: null };
+
+  function setV11RuntimeClock(dateLike) {
+    const d = new Date(dateLike);
+    if (Number.isNaN(d.getTime())) {
+      v11RuntimeClock.nowMs = null;
+      v11RuntimeClock.isoDate = null;
+      return;
+    }
+    v11RuntimeClock.nowMs = d.getTime();
+    v11RuntimeClock.isoDate = d.toISOString().slice(0, 10);
+  }
+
+  function clearV11RuntimeClock() {
+    v11RuntimeClock.nowMs = null;
+    v11RuntimeClock.isoDate = null;
+  }
+
+  function v11NowMs() {
+    return v11RuntimeClock.nowMs == null ? Date.now() : v11RuntimeClock.nowMs;
+  }
+
+  function v11TodayIso() {
+    return v11RuntimeClock.isoDate || new Date().toISOString().split('T')[0];
+  }
+
+  function resetV11State() {
+    v11State.oeEpisode = {
+      active: false,
+      entryPrice: null,
+      entryDate: null,
+      maxPriceInEpisode: null,
+      newHighTriggered: false,
+      newHighDate: null,
+    };
+    v11State.bearContext = { bearStartDate: null, btcATH: 0 };
+    v11State.correctionContext = {
+      active: false,
+      startDate: null,
+      startPrice: null,
+      minPrice: null,
+      ichimokuAtStart: null,
+    };
+  }
+
+  function snapshotV11State() {
+    return JSON.parse(JSON.stringify(v11State));
+  }
+
+  function restoreV11State(snapshot) {
+    if (!snapshot) {
+      resetV11State();
+      return;
+    }
+    v11State.oeEpisode = JSON.parse(JSON.stringify(snapshot.oeEpisode || {}));
+    v11State.bearContext = JSON.parse(JSON.stringify(snapshot.bearContext || {}));
+    v11State.correctionContext = JSON.parse(JSON.stringify(snapshot.correctionContext || {}));
+  }
+
   // Actualizare ATH + reset bear start la nou ATH
   function updateBtcATH(btcPrice) {
     if (btcPrice > v11State.bearContext.btcATH) {
@@ -1582,7 +1642,7 @@
     if (ichimokuRelation === 'below cloud' &&
         ['BEAR CONFIRMED','BREAKDOWN RISK'].includes(canonical) &&
         !v11State.bearContext.bearStartDate) {
-      v11State.bearContext.bearStartDate = new Date().toISOString().split('T')[0];
+      v11State.bearContext.bearStartDate = v11TodayIso();
     }
   }
 
@@ -1592,7 +1652,7 @@
     const bearStartDate = v11State.bearContext.bearStartDate;
     const drawdownPct = ath > 0 ? ((ath - btcPrice) / ath * 100) : 0;
     const bearDays = bearStartDate
-      ? Math.floor((Date.now() - new Date(bearStartDate).getTime()) / 86400000)
+      ? Math.floor((v11NowMs() - new Date(bearStartDate).getTime()) / 86400000)
       : 0;
     const bearMonths = bearDays / 30;
     return {
@@ -1611,35 +1671,44 @@
       if (!oe.active) {
         oe.active = true;
         oe.entryPrice = btcPrice;
-        oe.entryDate = new Date().toISOString().split('T')[0];
+        oe.entryDate = v11TodayIso();
         oe.maxPriceInEpisode = btcPrice;
-        oe.dayCount = 0;
         oe.newHighTriggered = false;
         oe.newHighDate = null;
       } else {
-        oe.dayCount++;
+        // dayCount calculat din entryDate (ca Bloc D) — nu incrementat manual
+        // fix: dayCount++ la fiecare refresh de 5min consuma fereastra in ~70min
+        const dayCount = oe.entryDate
+          ? Math.floor((v11NowMs() - new Date(oe.entryDate).getTime()) / 86400000)
+          : 0;
         if (btcPrice > oe.maxPriceInEpisode) oe.maxPriceInEpisode = btcPrice;
-        if (!oe.newHighTriggered && oe.dayCount <= 14) {
+        if (!oe.newHighTriggered && dayCount <= 14) {
           if (oe.maxPriceInEpisode > oe.entryPrice * 1.03) {
             oe.newHighTriggered = true;
-            oe.newHighDate = new Date().toISOString().split('T')[0];
+            oe.newHighDate = v11TodayIso();
           }
         }
       }
     } else {
       if (oe.active) {
+        // reset complet — inclusiv entryDate și newHighDate (cleanup)
         oe.active = false;
         oe.entryPrice = null;
+        oe.entryDate = null;
         oe.maxPriceInEpisode = null;
-        oe.dayCount = 0;
         oe.newHighTriggered = false;
+        oe.newHighDate = null;
       }
     }
     if (!oe.active) return { active: false };
+    // dayCount recalculat pentru return (aceeasi formula, disponibila si in afara else)
+    const oeDayCount = oe.entryDate
+      ? Math.floor((v11NowMs() - new Date(oe.entryDate).getTime()) / 86400000)
+      : 0;
     return {
       active: true,
       tipB: oe.newHighTriggered,
-      dayCount: oe.dayCount,
+      dayCount: oeDayCount,
       maxVsEntry: oe.entryPrice > 0 ? ((oe.maxPriceInEpisode - oe.entryPrice) / oe.entryPrice * 100).toFixed(1) : '0',
       entryPrice: oe.entryPrice,
       newHighDate: oe.newHighDate,
@@ -1727,7 +1796,7 @@
     const ctx = v11State.correctionContext;
     if (!ctx.active) {
       ctx.active = true;
-      ctx.startDate = new Date().toISOString().split('T')[0];
+      ctx.startDate = v11TodayIso();
       ctx.startPrice = btcPrice;
       ctx.minPrice = btcPrice;
       ctx.ichimokuAtStart = ichimokuRelation;
@@ -1736,7 +1805,7 @@
     }
 
     const dayCount = ctx.startDate
-      ? Math.floor((Date.now() - new Date(ctx.startDate).getTime()) / 86400000)
+      ? Math.floor((v11NowMs() - new Date(ctx.startDate).getTime()) / 86400000)
       : 0;
     const weekCount = Math.max(0, Math.floor(dayCount / 7));
     const drawdownInCorr = ctx.startPrice > 0
@@ -1814,10 +1883,13 @@
     const blocD = deriveBlocD(canonical, ichimokuRelation, btcPrice);
     const blocE = deriveBlocE(ichimokuRelation);
 
-    // Bloc C nu are trigger propriu — e context pentru Bloc B + narrative STABILIZATION
-    const accumCtx = (canonical === 'STABILIZATION' && (ichimokuRelation === 'below cloud' || ichimokuRelation === 'inside cloud'))
-      ? getAccumulationContext(btcPrice, ichimokuRelation)
-      : null;
+    // Bloc C nu are trigger propriu — e context pentru Bloc B + narrative STABILIZATION.
+    // Pentru audit și confidence pipeline trebuie să fie disponibil și când Bloc B este activ.
+    const needsAccumCtx = (
+      blocB.active ||
+      (canonical === 'STABILIZATION' && (ichimokuRelation === 'below cloud' || ichimokuRelation === 'inside cloud'))
+    );
+    const accumCtx = needsAccumCtx ? getAccumulationContext(btcPrice, ichimokuRelation) : null;
 
     return { blocA, blocB, blocD, blocE, accumCtx };
   }
@@ -1980,6 +2052,65 @@
     return 'LOW';
   }
 
+  function applyV11ConfidenceAdjustments(engine, v11) {
+    if (!engine) return engine;
+
+    const baseScoreRaw = Number(engine.confidenceScore);
+    const baseScore = Number.isFinite(baseScoreRaw) ? baseScoreRaw : 0;
+    const baseLabel = engine.confidence || confidenceLabel(baseScore);
+
+    const out = {
+      ...engine,
+      baseConfidenceScore: baseScore,
+      baseConfidence: baseLabel,
+      confidenceScore: baseScore,
+      confidence: baseLabel,
+      confidenceAdjustmentReason: null
+    };
+
+    if (!v11 || !v11.blocB || !v11.blocB.active) {
+      return out;
+    }
+
+    const blocB = v11.blocB;
+    const accumCtx = v11.accumCtx || {};
+
+    // Fallback robust: dacă accumCtx lipsește, reconstruim deep-bear din datele deja expuse de Bloc B.
+    const drawdownPct = Number(blocB.drawdownPct ?? accumCtx.drawdownPct ?? 0);
+    const bearMonths = Number(blocB.bearMonths ?? accumCtx.bearMonths ?? 0);
+    const isDeepBear = !!accumCtx.isDeepBear || (drawdownPct > 40 && bearMonths > 4);
+    const isAdvancedAccum = !!blocB.isAdvancedAccum || !!accumCtx.isAdvancedAccum;
+
+    const isBearRally = (
+      blocB.trigger === 'below' ||
+      (blocB.trigger === 'inside' && !isAdvancedAccum)
+    );
+    const isTransitionRally = (
+      blocB.trigger === 'inside' && isAdvancedAccum
+    );
+
+    let adjustedScore = baseScore;
+    let confidenceReason = null;
+
+    if (isBearRally) {
+      adjustedScore *= 0.6;
+      if (isDeepBear) adjustedScore *= 0.5;
+      adjustedScore = Math.min(adjustedScore, 55);
+      confidenceReason = isDeepBear
+        ? 'BEAR_RALLY_DEEP_BEAR'
+        : (blocB.trigger === 'below' ? 'BEAR_RALLY_BELOW' : 'BEAR_RALLY_INSIDE');
+    } else if (isTransitionRally) {
+      adjustedScore *= 0.85;
+      confidenceReason = 'TRANSITION_RALLY';
+    }
+
+    adjustedScore = clamp(Math.round(adjustedScore), 0, 100);
+    out.confidenceScore = adjustedScore;
+    out.confidence = confidenceLabel(adjustedScore);
+    out.confidenceAdjustmentReason = confidenceReason;
+    return out;
+  }
+
   async function getJSON(url) {
     // Fallback: dacă data-api.binance.vision eșuează, încearcă api3.binance.com
     const urls = url.includes('data-api.binance.vision')
@@ -2100,7 +2231,7 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return null;
         if (!Array.isArray(parsed.ratioSeries) || !parsed.ratioSeries.length) return null;
-        if (!allowStale && parsed.ts && ((Date.now() - parsed.ts) > CACHE_MAX_AGE_MS)) return null;
+        if (!allowStale && parsed.ts && ((v11NowMs() - parsed.ts) > CACHE_MAX_AGE_MS)) return null;
         return parsed;
       } catch (err) {
         return null;
@@ -2109,7 +2240,7 @@
 
     function writeStablecoinCache(payload) {
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), ...payload }));
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: v11NowMs(), ...payload }));
       } catch (err) {}
     }
 
@@ -2569,6 +2700,71 @@ async function fetchData() {
     })).sort((a,b) => b.count - a.count);
   }
 
+  function detectReplayEpisodes(rows, isActive, metaBuilder) {
+    const episodes = [];
+    let current = null;
+    rows.forEach((row, idx) => {
+      if (isActive(row)) {
+        if (!current) current = { start: idx, end: idx };
+        else current.end = idx;
+      } else if (current) {
+        episodes.push(metaBuilder(rows.slice(current.start, current.end + 1)));
+        current = null;
+      }
+    });
+    if (current) episodes.push(metaBuilder(rows.slice(current.start, current.end + 1)));
+    return episodes;
+  }
+
+  function buildV11EpisodeMeta(arr, blockKey) {
+    const first = arr[0];
+    const last = arr[arr.length - 1];
+    const peak14 = arr.map(x => x.ret14).filter(v => typeof v === 'number');
+    const peak7 = arr.map(x => x.ret7).filter(v => typeof v === 'number');
+    return {
+      block: blockKey,
+      startDate: first.date,
+      endDate: last.date,
+      days: arr.length,
+      firstState: first.simplified,
+      firstCanonical: first.v11Canonical,
+      lastState: last.simplified,
+      macroZone: first.v11MacroZone,
+      label: first.v11PrimaryLabel || '—',
+      subtype: blockKey === 'A' ? (arr.some(x => x.v11BlocATipB) ? 'TIP B' : 'TIP A')
+            : blockKey === 'B' ? (arr[0].v11BlocBTrigger || '—')
+            : blockKey === 'D' ? (arr[0].v11BlocDCorrType || '—')
+            : blockKey === 'C' ? 'deep bear stabilization'
+            : '—',
+      avgExposure: arr.length ? mean(arr.map(x => x.targetExposure)) : 0,
+      avgT7: peak7.length ? mean(peak7) : null,
+      avgT14: peak14.length ? mean(peak14) : null,
+      maxBlocAStretch: blockKey === 'A' ? Math.max(...arr.map(x => Number(x.v11BlocAMaxVsEntry || 0))) : null
+    };
+  }
+
+  function summarizeV11Replay(rows) {
+    const primaryCounts = ['A','B','C','D','NONE'].map(key => ({
+      key,
+      count: rows.filter(r => r.v11PrimaryKey === key).length
+    }));
+    const macroZones = ['above','inside','below'].map(zone => ({
+      zone,
+      count: rows.filter(r => r.v11MacroZone === zone).length
+    }));
+
+    return {
+      primaryCounts,
+      macroZones,
+      episodes: {
+        A: detectReplayEpisodes(rows, r => r.v11BlocAActive, arr => buildV11EpisodeMeta(arr, 'A')),
+        B: detectReplayEpisodes(rows, r => r.v11BlocBActive, arr => buildV11EpisodeMeta(arr, 'B')),
+        C: detectReplayEpisodes(rows, r => r.v11BlocCActive, arr => buildV11EpisodeMeta(arr, 'C')),
+        D: detectReplayEpisodes(rows, r => r.v11BlocDActive, arr => buildV11EpisodeMeta(arr, 'D'))
+      }
+    };
+  }
+
   function summarizeReplayRows(rows) {
     const completed = rows.filter(r => r.ret7 != null);
     let flips = 0, contradictoryFlips = 0, highConf = 0;
@@ -2618,7 +2814,8 @@ async function fetchData() {
         labels14: trackingLabelCounts(rows, 'labelT14'),
         byDecisionClass: summarizeTrackingGroups(rows, 'decisionClass'),
         byConfidence: summarizeTrackingGroups(rows, 'confidence')
-      }
+      },
+      v11: summarizeV11Replay(rows)
     };
   }
 
@@ -2651,6 +2848,7 @@ async function fetchData() {
     if (docOverlay.classList.contains('open')) openDocOverlay('replay');
 
     const memorySnapshot = replayExecutionMemorySnapshot();
+    const v11Snapshot = snapshotV11State();
     try {
       const startMs = Date.parse(warmupStart + 'T00:00:00Z');
       const endMs = Date.parse(endDate + 'T23:59:59Z');
@@ -2662,6 +2860,7 @@ async function fetchData() {
 
       ['cryptorisk_v95_last_state','cryptorisk_v95_state_duration','cryptorisk_v95_last_target','cryptorisk_v95_hold_until','cryptorisk_v95_last_change_date','cryptorisk_v95_last_change_size']
         .forEach(k => localStorage.removeItem(k));
+      resetV11State();
 
       const btcMap = new Map(btcDaily.map((k, i) => [isoDateUTC(Number(k[0])), i]));
       const ethMap = new Map(ethDaily.map((k, i) => [isoDateUTC(Number(k[0])), i]));
@@ -2686,8 +2885,21 @@ async function fetchData() {
         const rel7d = relCloses.length >= 8 ? ((last(relCloses) - relCloses[relCloses.length - 8]) / relCloses[relCloses.length - 8]) * 100 : 0;
 
         const data = { btc, eth, rel7d, fetchedAt: new Date(date + 'T00:00:00Z') };
-        const engine = deriveEngine(data);
+        const rawEngine = deriveEngine(data);
+        const v11Canonical = mapToCanonicalState(rawEngine.detailed, rawEngine.simplified);
+        const v11Ichimoku = (btc.weekly && btc.weekly.ichimoku && btc.weekly.ichimoku.relation) || 'inside cloud';
+        setV11RuntimeClock(data.fetchedAt);
+        const v11Ctx = deriveV11Context(v11Canonical, v11Ichimoku, btc.price);
+        const v11Nar = buildV11Narrative(v11Ctx);
+        const v11Commentary = getV11CommentaryOverride(v11Ctx);
+        clearV11RuntimeClock();
+        const engine = applyV11ConfidenceAdjustments(rawEngine, v11Ctx);
         const execution = deriveExecution(data, engine);
+        const v11PrimaryKey = v11Ctx.blocA.active ? 'A'
+          : v11Ctx.blocB.active ? 'B'
+          : v11Ctx.blocD.active ? 'D'
+          : (v11Ctx.accumCtx && v11Ctx.accumCtx.isDeepBear) ? 'C'
+          : 'NONE';
 
         const btcCloses = btcSub.map(k => Number(k[4]));
         const i = btcCloses.length - 1;
@@ -2708,12 +2920,15 @@ async function fetchData() {
           simplified: engine.simplified,
           confidence: engine.confidence,
           confidenceScore: engine.confidenceScore,
+          baseConfidence: engine.baseConfidence || null,
+          baseConfidenceScore: engine.baseConfidenceScore ?? null,
+          confidenceAdjustmentReason: engine.confidenceAdjustmentReason || null,
           targetExposure: execution.targetExposure,
           action: execution.action,
           relState: engine.relState,
-          proWhat: execution.what,
-          proMeaning: execution.meaning,
-          proConclusion: execution.conclusion,
+          proWhat: v11Commentary ? v11Commentary.what : execution.what,
+          proMeaning: v11Commentary ? v11Commentary.meaning : execution.meaning,
+          proConclusion: v11Commentary ? v11Commentary.conclusion : execution.conclusion,
           ret3, ret7, ret14,
           bucket: expectedBucket(engine.simplified, execution.targetExposure),
           decisionClass,
@@ -2727,7 +2942,29 @@ async function fetchData() {
           trackingSummary: trackingSummaryForDecisionClass(decisionClass),
           isHighRiskContext: ['DEFENSIVE','PROFIT_PROTECTION'].includes(decisionClass),
           isTopRiskContext: decisionClass === 'PROFIT_PROTECTION',
-          isRecoveryContext: decisionClass === 'CONSTRUCTIVE'
+          isRecoveryContext: decisionClass === 'CONSTRUCTIVE',
+          v11PrimaryKey,
+          v11PrimaryLabel: v11Nar.primary ? v11Nar.primary.label : null,
+          v11CommentaryKey: v11Commentary ? v11Commentary.key : null,
+          v11MacroLabel: v11Nar.macroLabel || null,
+          v11MacroZone: v11Ctx.blocE.zone,
+          v11Canonical,
+          v11Ichimoku,
+          v11BlocAActive: !!v11Ctx.blocA.active,
+          v11BlocATipB: !!v11Ctx.blocA.tipB,
+          v11BlocADayCount: v11Ctx.blocA.dayCount ?? null,
+          v11BlocAMaxVsEntry: v11Ctx.blocA.maxVsEntry ?? null,
+          v11BlocBActive: !!v11Ctx.blocB.active,
+          v11BlocBTrigger: v11Ctx.blocB.trigger || null,
+          v11BlocBAdvancedAccum: !!v11Ctx.blocB.isAdvancedAccum,
+          v11BlocCActive: !!(v11Ctx.accumCtx && v11Ctx.accumCtx.isDeepBear),
+          v11BlocCBearMonths: v11Ctx.accumCtx ? Number(v11Ctx.accumCtx.bearMonths.toFixed(1)) : null,
+          v11BlocCDrawdownPct: v11Ctx.accumCtx ? Number(v11Ctx.accumCtx.drawdownPct.toFixed(1)) : null,
+          v11BlocDActive: !!v11Ctx.blocD.active,
+          v11BlocDCorrType: v11Ctx.blocD.corrType || null,
+          v11BlocDDayCount: v11Ctx.blocD.dayCount ?? null,
+          v11BlocDWeekCount: v11Ctx.blocD.weekCount ?? null,
+          v11BlocDDrawdown: v11Ctx.blocD.drawdownInCorr ?? null
         });
 
         if (rows.length % 50 === 0) {
@@ -2745,6 +2982,8 @@ async function fetchData() {
       replayState.status = `Replay failed: ${err.message}`;
     } finally {
       restoreExecutionMemorySnapshot(memorySnapshot);
+      restoreV11State(v11Snapshot);
+      clearV11RuntimeClock();
       replayState.running = false;
       if (docOverlay.classList.contains('open')) openDocOverlay('replay');
     }
@@ -2763,6 +3002,107 @@ async function fetchData() {
     URL.revokeObjectURL(url);
   }
 
+
+
+  function getV11CommentaryOverride(v11Ctx) {
+    if (!v11Ctx) return null;
+    let key = null;
+
+    // ── PRIORITATEA: A > B > D (ierarhia blocurilor) ──────────────
+    
+    if (v11Ctx.blocA && v11Ctx.blocA.active) {
+      // Bloc A — OE Watchdog: TIP A (risc crescut) sau TIP B (continuare)
+      key = v11Ctx.blocA.tipB ? 'OE_TIP_B' : 'OE_TIP_A';
+
+    } else if (v11Ctx.blocB && v11Ctx.blocB.active) {
+      // Bloc B activ — bear sau tranziție
+      if (v11Ctx.blocB.trigger === 'below') {
+        key = 'BEAR_RALLY_BELOW';
+      } else if (v11Ctx.blocB.trigger === 'inside') {
+        if (v11Ctx.blocB.isAdvancedAccum) key = 'TRANSITION_RALLY';
+        else key = 'BEAR_RALLY_INSIDE';
+      }
+      // Marcăm că Bloc B a fost activ recent (pentru tranziție)
+      v11State._blocBRecentDays = 14;
+
+    } else if (v11Ctx.blocD && v11Ctx.blocD.active) {
+      // Bloc D — Correction Types
+      const ct = v11Ctx.blocD.corrType;
+      if (ct === 'healthy_or_sideways') key = 'CORRECTION_HEALTHY';
+      else if (ct === 'breakdown')       key = 'CORRECTION_BREAKDOWN';
+      else                               key = 'CORRECTION_EARLY';
+
+    } else {
+      // Bloc B inactiv — decrementăm memoria
+      if (v11State._blocBRecentDays > 0) {
+        v11State._blocBRecentDays--;
+        if (v11Ctx.blocE && v11Ctx.blocE.zone === 'above' && v11State._blocBRecentDays > 0) {
+          key = 'CONFIRMED_RECOVERY';
+        }
+      }
+    }
+    const MAP = {
+      // ── Bloc A — OE Watchdog ──────────────────────────────────
+      OE_TIP_A: {
+        key: 'OE_TIP_A',
+        what: 'Prețul se află în zona supraextinsă, dar nu mai face maxime noi.',
+        meaning: 'Semnele de slăbire internă cresc. Episoadele OE fără noi maxime marchează frecvent topuri sau pre-corecții.',
+        conclusion: 'Protejezi profitul. Nu adaugi expunere în această fază.'
+      },
+      OE_TIP_B: {
+        key: 'OE_TIP_B',
+        what: 'Prețul continuă să urce și face noi maxime în zona supraextinsă.',
+        meaning: 'Trendul rămâne activ. Istoric, episoadele OE cu noi maxime au continuat semnificativ înainte de corecție.',
+        conclusion: 'Menții pozițiile existente. Nu adaugi agresiv și nu confunzi extensia cu semnalul de ieșire.'
+      },
+      // ── Bloc D — Correction Types ─────────────────────────────
+      CORRECTION_EARLY: {
+        key: 'CORRECTION_EARLY',
+        what: 'Piața se află în primele săptămâni de slăbiciune.',
+        meaning: 'Prea devreme pentru a clasifica tipul de corecție. Ichimoku rămâne intact, dar direcția nu este clară.',
+        conclusion: 'Monitorizezi evoluția Ichimoku în săptămânile 4-8. Nu reacționezi la zgomot.'
+      },
+      CORRECTION_HEALTHY: {
+        key: 'CORRECTION_HEALTHY',
+        what: 'Corecție în curs cu structura macro intactă.',
+        meaning: 'Ichimoku rămâne above cloud. Corecțiile de acest tip sunt frecvente în bull markets și nu invalidează trendul principal.',
+        conclusion: 'Trendul nu este invalidat. Repoziționarea graduală rămâne o opțiune validă.'
+      },
+      CORRECTION_BREAKDOWN: {
+        key: 'CORRECTION_BREAKDOWN',
+        what: 'Corecția se adâncește și structura macro se deteriorează.',
+        meaning: 'Ichimoku a intrat în cloud sau sub cloud. Deteriorarea structurală crește probabilitatea că aceasta nu e o simplă corecție.',
+        conclusion: 'Prudență sporită justificată. Reducerea expunerii devine prioritară.'
+      },
+      // ── Bloc B — Bear Context ─────────────────────────────────
+      BEAR_RALLY_BELOW: {
+        key: 'BEAR_RALLY_BELOW',
+        what: 'Prețul crește, dar mișcarea apare într-un context structural negativ.',
+        meaning: 'Rally într-un bear market. Mișcarea este probabil temporară și poate fi un bull trap.',
+        conclusion: 'Nu trata această mișcare ca început de trend. Risc ridicat.'
+      },
+      BEAR_RALLY_INSIDE: {
+        key: 'BEAR_RALLY_INSIDE',
+        what: 'Prețul recuperează într-o zonă de tranziție.',
+        meaning: 'Contextul nu este confirmat. Rally-ul poate continua, dar riscul de eșec rămâne ridicat.',
+        conclusion: 'Fii prudent. Nu există confirmare de trend.'
+      },
+      TRANSITION_RALLY: {
+        key: 'TRANSITION_RALLY',
+        what: 'Prețul crește într-un context de acumulare avansată.',
+        meaning: 'Există semne de tranziție din bear market. Mișcarea are șanse mai mari să fie sustenabilă.',
+        conclusion: 'Posibil început de trend, dar necesită confirmare structurală.'
+      },
+      CONFIRMED_RECOVERY: {
+        key: 'CONFIRMED_RECOVERY',
+        what: 'Prețul continuă să crească într-un context structural pozitiv.',
+        meaning: 'Mișcarea este susținută de structură. Probabilitate mai mare de continuare a trendului.',
+        conclusion: 'Trendul este validat. Expunerea poate fi crescută gradual.'
+      }
+    };
+    return key ? MAP[key] : null;
+  }
+
   function renderBucketSummaryCell(obj) {
     if (!obj || obj.avg == null) return 'n/a';
     const cls = obj.avg > 0 ? 'pos' : obj.avg < 0 ? 'neg' : 'muted';
@@ -2771,7 +3111,7 @@ async function fetchData() {
 
   function buildReplayPanel() {
     const today = new Date().toISOString().slice(0, 10);
-    const params = replayState.lastParams || { startDate: '2024-01-01', endDate: today, warmupStart: '2022-01-01' };
+    const params = replayState.lastParams || { startDate: '2017-08-01', endDate: today, warmupStart: '2017-08-01' };
     const result = replayState.result;
     const summary = result?.summary;
 
@@ -2813,7 +3153,7 @@ async function fetchData() {
     ` : `
       <div class="replay-card">
         <h3>No replay results yet</h3>
-        <div class="journal-empty">Rulează replay-ul pentru a vedea distribuția stărilor, flip count-ul și forward usefulness pe T+7 / T+14 folosind date spot Binance.</div>
+        <div class="journal-empty">Rulează replay-ul pentru a vedea tot istoricul motorului și toate aparițiile V11 (A / B / C / D) pe date spot Binance reale.</div>
       </div>
     `;
 
@@ -2843,6 +3183,56 @@ async function fetchData() {
                   <td>${s.avgRet14 == null ? 'n/a' : `<span class="${s.avgRet14 > 0 ? 'pos' : s.avgRet14 < 0 ? 'neg' : 'muted'}">${fmtPct(s.avgRet14, 2)}</span>`}</td>
                 </tr>
               `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ` : '';
+
+    const v11EpisodeRowsHtml = summary
+      ? ['A','B','C','D'].flatMap(key => (summary.v11.episodes[key] || []).map(ep => {
+          const avgT7Html = ep.avgT7 == null
+            ? 'n/a'
+            : `<span class="${ep.avgT7 > 0 ? 'pos' : ep.avgT7 < 0 ? 'neg' : 'muted'}">${fmtPct(ep.avgT7, 2)}</span>`;
+          const avgT14Html = ep.avgT14 == null
+            ? 'n/a'
+            : `<span class="${ep.avgT14 > 0 ? 'pos' : ep.avgT14 < 0 ? 'neg' : 'muted'}">${fmtPct(ep.avgT14, 2)}</span>`;
+          return `
+                <tr>
+                  <td>${key}</td>
+                  <td>${ep.startDate}</td>
+                  <td>${ep.endDate}</td>
+                  <td>${ep.days}</td>
+                  <td>${ep.subtype}</td>
+                  <td>${ep.macroZone}</td>
+                  <td>${avgT7Html}</td>
+                  <td>${avgT14Html}</td>
+                </tr>
+          `;
+        })).join('')
+      : '';
+
+    const v11SummaryHtml = summary ? `
+      <div class="replay-card">
+        <h3>V11 context scan</h3>
+        <div class="replay-stats">
+          <div class="replay-stat"><div class="k">A days</div><div class="v">${summary.v11.primaryCounts.find(x => x.key === 'A')?.count || 0}</div></div>
+          <div class="replay-stat"><div class="k">B days</div><div class="v">${summary.v11.primaryCounts.find(x => x.key === 'B')?.count || 0}</div></div>
+          <div class="replay-stat"><div class="k">C days</div><div class="v">${summary.v11.primaryCounts.find(x => x.key === 'C')?.count || 0}</div></div>
+          <div class="replay-stat"><div class="k">D days</div><div class="v">${summary.v11.primaryCounts.find(x => x.key === 'D')?.count || 0}</div></div>
+        </div>
+        <div class="journal-footer-note">Acestea sunt zilele în care V11 a produs efectiv un context primar, nu exemple alese manual.</div>
+      </div>
+
+      <div class="replay-card">
+        <h3>V11 episodes</h3>
+        <div class="replay-scroll">
+          <table class="replay-table">
+            <thead>
+              <tr><th>Block</th><th>Start</th><th>End</th><th>Days</th><th>Subtype</th><th>Macro</th><th>Avg T+7</th><th>Avg T+14</th></tr>
+            </thead>
+            <tbody>
+              ${v11EpisodeRowsHtml}
             </tbody>
           </table>
         </div>
@@ -2901,7 +3291,7 @@ async function fetchData() {
         <div class="replay-scroll">
           <table class="replay-table">
             <thead>
-              <tr><th>Date</th><th>BTC</th><th>State</th><th>Decision</th><th>Exposure</th><th>T+7</th><th>Tracking</th></tr>
+              <tr><th>Date</th><th>State</th><th>Conf.</th><th>Exposure</th><th>V11</th><th>T+7</th><th>T+14</th></tr>
             </thead>
             <tbody>
               ${result.rows.slice(-40).reverse().map(r => `
@@ -2910,6 +3300,7 @@ async function fetchData() {
                   <td>${r.simplified}</td>
                   <td>${r.confidence}</td>
                   <td>${r.targetExposure}%</td>
+                  <td>${r.v11PrimaryKey}${r.v11PrimaryLabel ? ` · ${r.v11PrimaryLabel}` : ''}</td>
                   <td>${r.ret7 == null ? 'n/a' : `<span class="${r.ret7 > 0 ? 'pos' : r.ret7 < 0 ? 'neg' : 'muted'}">${fmtPct(r.ret7, 2)}</span>`}</td>
                   <td>${r.ret14 == null ? 'n/a' : `<span class="${r.ret14 > 0 ? 'pos' : r.ret14 < 0 ? 'neg' : 'muted'}">${fmtPct(r.ret14, 2)}</span>`}</td>
                 </tr>
@@ -2923,7 +3314,7 @@ async function fetchData() {
     return `
       <div class="replay-panel">
         <div class="doc-callout">
-          <strong>Replay engine:</strong> acest modul rulează exact motorul curent zi-cu-zi pe date reale Binance spot, în browser, fără hindsight în indicatori. Warm-up-ul pornește implicit din 2022 pentru a stabiliza EMA200, RSI și Ichimoku.
+          <strong>Replay engine:</strong> acest modul rulează exact motorul curent zi-cu-zi pe date reale Binance spot, în browser, fără hindsight în indicatori. Patch-ul curent capturează și layerul V11, astfel încât poți vedea toate aparițiile A / B / C / D pe tot istoricul. Warm-up-ul pornește implicit din 2017.
         </div>
 
         <div class="replay-toolbar">
@@ -2950,6 +3341,7 @@ async function fetchData() {
         <div class="replay-grid">
           <div style="display:grid; gap:16px;">
             ${summaryHtml}
+            ${v11SummaryHtml}
             ${statesHtml}
             ${trackingBreakdownHtml}
           </div>
@@ -4421,17 +4813,50 @@ async function fetchData() {
   }
 function renderDashboard(data, engine) {
     const btc = data.btc, eth = data.eth;
+
+    // ── V11 Context Layer + confidence adjustment ─────────────
+    const _v11Canonical = mapToCanonicalState(engine.detailed, engine.simplified);
+    const _v11Ichimoku  = (btc.weekly && btc.weekly.ichimoku && btc.weekly.ichimoku.relation) || 'inside cloud';
+    setV11RuntimeClock(data.fetchedAt);
+    const _v11Ctx       = deriveV11Context(_v11Canonical, _v11Ichimoku, btc.price);
+    const _v11Nar       = buildV11Narrative(_v11Ctx);
+    const _v11Commentary = getV11CommentaryOverride(_v11Ctx);
+    clearV11RuntimeClock();
+    engine = applyV11ConfidenceAdjustments(engine, _v11Ctx);
+    updateV11UI(_v11Nar);
+    // ── sfârşit V11 ───────────────────────────────────────────
+
     const confluence = keyConfluenceBTC(data, engine);
     const execution = deriveExecution(data, engine);
     const text = buildNarrative(data, engine, confluence, execution);
-
-    // ── V11 Context Layer (read-only peste engine) ────────────
-    const _v11Canonical = mapToCanonicalState(engine.detailed, engine.simplified);
-    const _v11Ichimoku  = (btc.weekly && btc.weekly.ichimoku && btc.weekly.ichimoku.relation) || 'inside cloud';
-    const _v11Ctx       = deriveV11Context(_v11Canonical, _v11Ichimoku, btc.price);
-    const _v11Nar       = buildV11Narrative(_v11Ctx);
-    updateV11UI(_v11Nar);
-    // ── sfârşit V11 ───────────────────────────────────────────
+    if (_v11Commentary) {
+      if (text.snapshot) {
+        text.snapshot.what = _v11Commentary.what;
+        text.snapshot.meaning = _v11Commentary.meaning;
+        text.snapshot.conclusion = _v11Commentary.conclusion;
+      }
+      if (text.market) {
+        text.market.what = _v11Commentary.what;
+        text.market.meaning = _v11Commentary.meaning;
+        text.market.conclusion = _v11Commentary.conclusion;
+      }
+      if (text.btc) {
+        text.btc.what = _v11Commentary.what;
+        text.btc.meaning = _v11Commentary.meaning;
+        text.btc.conclusion = _v11Commentary.conclusion;
+      }
+      // Phase (Market Phase card) — cel mai important pentru context ciclic
+      if (text.phase) {
+        text.phase.what = _v11Commentary.what;
+        text.phase.meaning = _v11Commentary.meaning;
+        text.phase.conclusion = _v11Commentary.conclusion;
+      }
+      // Header — prefix cu label V11
+      if (text.header && _v11Commentary.key !== 'CONFIRMED_RECOVERY') {
+        text.header = `${text.header} · ${_v11Commentary.key.replace(/_/g,' ')}`;
+      }
+      text.v11CommentaryKey = _v11Commentary.key;
+    }
 
     const dt = data.fetchedAt;
     const timeStr = dt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -4684,8 +5109,14 @@ function renderDashboard(data, engine) {
     try {
       document.getElementById('syncChip').textContent = '… ACTUALIZARE';
       const data = await fetchData();
-      const engine = deriveEngine(data);
-      const health = validateData(data, engine);
+      const rawEngine = deriveEngine(data);
+      const health = validateData(data, rawEngine);
+      const _v11Canonical = mapToCanonicalState(rawEngine.detailed, rawEngine.simplified);
+      const _v11Ichimoku  = (data.btc.weekly && data.btc.weekly.ichimoku && data.btc.weekly.ichimoku.relation) || 'inside cloud';
+      setV11RuntimeClock(data.fetchedAt);
+      const _v11Ctx = deriveV11Context(_v11Canonical, _v11Ichimoku, data.btc.price);
+      clearV11RuntimeClock();
+      const engine = applyV11ConfidenceAdjustments(rawEngine, _v11Ctx);
       const syncTime = data.fetchedAt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const syncChip = document.getElementById('syncChip');
       const healthChip = document.getElementById('healthChip');
