@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>CryptoRisk Dashboard — V10.7.7.3</title>
+<title>CryptoRisk Dashboard — V11.9</title>
 <style>
     :root {
       --bg: #0b1020;
@@ -1198,8 +1198,8 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V10.7.7.3</h1>
-<div class="subtitle">Engine V10.7.7.3 · execution memory + journal / change tracker + replay + LITE · outcome tracking T+3 / T+7 / T+14 + tracking analytics · capital protection · stablecoin positioning context · autosync 5 minute</div>
+<h1>CryptoRisk Dashboard — V11.9</h1>
+<div class="subtitle">Engine V11.9 · V11 Context Layer (Bloc A-E) · commentary override · bear rally / transition detection · execution memory + journal + replay + LITE · stablecoin positioning · autosync 5 minute</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
 </div>
@@ -1449,31 +1449,7 @@
 <div class="phase-line" id="recoveryPath"></div>
 </div>
 </article>
-<article class="card full-width" id="v11-context" style="display:none">
-<div class="card-head">
-<h2>Market Context — V11</h2>
-<span class="badge orange" id="v11-macro-label">Ichimoku: —</span>
-</div>
-<div class="card-body">
-<div class="commentary">
-<div class="block">
-  <div class="label" id="v11-label" style="font-weight:600;color:var(--warn,#f59e0b);">—</div>
-</div>
-<div class="block">
-  <div class="label">Ce observăm</div>
-  <p id="v11-what">—</p>
-</div>
-<div class="block">
-  <div class="label">Ce înseamnă</div>
-  <p id="v11-meaning">—</p>
-</div>
-<div class="block">
-  <div class="label">Concluzie</div>
-  <p id="v11-conclusion">—</p>
-</div>
-</div>
-</div>
-</article>
+
 <div aria-hidden="true" class="doc-overlay" id="docOverlay">
 <div aria-labelledby="docPanelTitle" aria-modal="true" class="doc-panel" role="dialog">
 <div class="doc-head">
@@ -4823,7 +4799,8 @@ function renderDashboard(data, engine) {
     const _v11Commentary = getV11CommentaryOverride(_v11Ctx);
     clearV11RuntimeClock();
     engine = applyV11ConfidenceAdjustments(engine, _v11Ctx);
-    updateV11UI(_v11Nar);
+    // updateV11UI eliminat — subcards V11 separat a fost eliminat; 
+    // comentariile V11 ajung în cardurile principale prin override post-buildNarrative
     // ── sfârşit V11 ───────────────────────────────────────────
 
     const confluence = keyConfluenceBTC(data, engine);
@@ -5105,7 +5082,10 @@ function renderDashboard(data, engine) {
     nextSyncIn = AUTO_SYNC_SECONDS;
   }
 
+  let _refreshInProgress = false;
   async function refreshLive() {
+    if (_refreshInProgress) return;
+    _refreshInProgress = true;
     try {
       document.getElementById('syncChip').textContent = '… ACTUALIZARE';
       const data = await fetchData();
@@ -5148,6 +5128,8 @@ function renderDashboard(data, engine) {
       document.getElementById('syncChip').textContent = '✕ EROARE SYNC';
       const errMsg = err && err.message ? err.message : String(err);
       document.getElementById('headerMessage').textContent = 'Eroare: ' + errMsg + ' — Deschide Console (F12) pentru detalii.';
+    } finally {
+      _refreshInProgress = false;
     }
   }
 
@@ -6420,6 +6402,69 @@ function backfillJournal(engineRunner) {
   // CHANGELOG — CryptoRisk Dashboard
   // ═══════════════════════════════════════════════════════════
   //
+  // V11.9 — Release: V11 Context Layer complet
+  //
+  //   ARHITECTURĂ V11 (Context Layer, read-only deasupra V10.7.7.3 engine):
+  //   ┌─────────────────────────────────────────────────────┐
+  //   │  Engine V10.7.7.3 — NEATINS                        │
+  //   │  deriveEngine / deriveExecution / buildNarrative    │
+  //   └──────────────┬──────────────────────────────────────┘
+  //                  │ read-only
+  //   ┌──────────────▼──────────────────────────────────────┐
+  //   │  V11 Context Layer                                  │
+  //   │  deriveV11Context → blocA / blocB / blocD / blocE   │
+  //   │  getV11CommentaryOverride → override post-hoc       │
+  //   └─────────────────────────────────────────────────────┘
+  //
+  //   BLOC A — OE Watchdog
+  //     - Detectare episoade BULL OVEREXTENDED
+  //     - TIP A: fără noi maxime în 14 zile → risc crescut
+  //     - TIP B: nou maxim >3% față de entry → continuare bull
+  //     - FIX: dayCount calculat din entryDate (nu dayCount++)
+  //     - FIX: reset complet la ieșire (entryDate + newHighDate)
+  //
+  //   BLOC B — Bear Context Filter
+  //     - BEAR_RALLY_BELOW: STRENGTHENING cu Ichimoku below cloud
+  //     - BEAR_RALLY_INSIDE: rally cu Ichimoku inside + bear recent
+  //     - TRANSITION_RALLY: inside cloud + isAdvancedAccum (>50% drawdown, >6 luni)
+  //     - Validat pe 3161 zile: avg ret30 BEAR_RALLY=-2.7%, TRANSITION=+12.5%
+  //
+  //   BLOC C — Accumulation Context
+  //     - Calculator de context (nu bloc independent)
+  //     - Alimentează Bloc B (isAdvancedAccum) și narrative STABILIZATION
+  //
+  //   BLOC D — Correction Types
+  //     - CORRECTION_EARLY: corecție <28 zile
+  //     - CORRECTION_HEALTHY: ≥28 zile cu Ichimoku intact
+  //     - CORRECTION_BREAKDOWN: ≥28 zile cu Ichimoku deteriorat
+  //     - dayCount calculat cu v11RuntimeClock (date istorice corecte)
+  //
+  //   BLOC E — Regime Layer
+  //     - Context ambient: macroLabel (above/inside/below cloud)
+  //     - Nu suprascrie commentary propriu — by design
+  //
+  //   CONFIRMED_RECOVERY
+  //     - FIX: eliminat trigger static (zone='above' → 44.5% fals)
+  //     - Nou: apare doar 14 zile după dezactivarea Bloc B cu above cloud
+  //     - Redus de la 44.5% la 3.9% din zile
+  //
+  //   COMMENTARY OVERRIDE (post-buildNarrative)
+  //     - getV11CommentaryOverride() → 9 chei cu texte distincte
+  //     - Suprascrie: text.snapshot, text.market, text.btc, text.phase, text.header
+  //     - buildNarrative() rămâne 100% neatins
+  //     - Engine și state machine rămân 100% neatinse
+  //
+  //   BUGFIX-URI INCLUSE:
+  //     - const → let pentru marketWhat, changeMeaning, changeConclusion
+  //       (fix Assignment to constant variable în buildNarrative)
+  //     - Binance UK: api.binance.com → data-api.binance.vision
+  //       cu fallback api3.binance.com
+  //     - refreshLive: mutex _refreshInProgress (evită refresh-uri simultane)
+  //     - Logging detaliat în catch (eroarea exactă vizibilă în UI)
+  //     - Eliminat card "Market Context — V11" redundant (override acoperă)
+  //     - Eliminat apel updateV11UI() redundant din renderDashboard
+  //
+  // ─────────────────────────────────────────────────────────────────────
   // V10.7.7.3 — Commentary runtime fix for strengthening overrides
   //   - marketWhat, changeMeaning și changeConclusion devin mutabile pentru override-urile STRENGTHENING
   //   - elimină riscul de Assignment to constant variable în inside / below cloud
