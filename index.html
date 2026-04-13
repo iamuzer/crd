@@ -5718,9 +5718,10 @@ function buildGuidePanel(activeTab = 'overview') {
   }
 
   function formatJournalPeriodLabel(entry, view) {
-    if (view === 'weekly') return entry.weekLabel || entry.date || 'Week';
-    if (view === 'monthly') return entry.monthLabel || entry.date || 'Month';
-    return entry.date || 'Day';
+    const d = entry.dateKey || entry.date || '';
+    if (view === 'weekly') return entry.weekLabel || d || 'Week';
+    if (view === 'monthly') return entry.monthLabel || d || 'Month';
+    return d || 'Day';
   }
 
   function buildWeeklyJournal(entries) {
@@ -5985,226 +5986,199 @@ function buildJournalDetailV104(entry) {
   }
 function buildChangelogPanel() {
     return `
-
-                <div class="changelog-entry">
-          <h3>V10.5.4 · Final hardening patch</h3>
-          <div class="meta">New in this version</div>
-          <ul>
-            <li>Version metadata synchronized across title, header and release subtitle.</li>
-            <li>BULL CONFIRMED execution is now locked to HOLD / MAINTAIN, removing implicit add behavior.</li>
-            <li>DecisionClass was rebuilt to depend on state + action + target exposure only, with no dependency on commentary text.</li>
-            <li>Tracking analytics remain read-only, but are now more deterministic and safer for audit work.</li>
-            <li>Release wording and hardening notes were updated for daily deployment readiness.</li>
-          </ul>
-        </div>
-        <div class="changelog-entry">
-          <h3>V10.5.5 · Tracking analytics layer</h3>
-          <div class="meta">New in this version</div>
-          <ul>
-            <li>Replay upgraded with tracking analytics: decision class, expected direction, T+3 / T+7 / T+14 labels and weighted accuracy.</li>
-            <li>Journal snapshots now save decision tracking fields without changing engine or execution logic.</li>
-            <li>Replay tables now show BTC price, decision class and T+7 tracking label for faster audit.</li>
-            <li>Added decision-class and confidence-level accuracy tables so the system can be evaluated without rewriting the motor.</li>
-            <li>Tracking remains read-only: it validates the system, but never modifies signals, exposure or commentary.</li>
-          </ul>
-        </div>
       <div class="doc-sections">
-        
 
-<div class="changelog-entry">
-  <div class="meta">Current</div>
-  <h3>V10.7.7.3 — Commentary runtime fix for strengthening overrides</h3>
-  <p>Patch mic și obligatoriu peste V10.7.7.2 care elimină eroarea de runtime din buildNarrative atunci când override-urile pentru STRENGTHENING reasignau variabile declarate anterior cu const.</p>
-  <ul>
-    <li><strong>Varianta B</strong> implementată în execution: STRENGTHENING rămâne același stat, dar target exposure este plafonat contextual:
-      <ul>
-        <li><strong>above cloud</strong> → comportament actual păstrat</li>
-        <li><strong>inside cloud</strong> → plafon 65%</li>
-        <li><strong>below cloud</strong> → plafon 55%</li>
-      </ul>
-    </li>
-    <li>Commentary alignment pentru STRENGTHENING în <strong>Current Market State</strong>, <strong>BTC</strong>, <strong>Confidence</strong> și <strong>Market Phase</strong>, astfel încât îmbunătățirea locală să nu mai fie prezentată ca bull curat când structura mare nu confirmă.</li>
-    <li>Fix critic: <strong>marketWhat</strong>, <strong>changeMeaning</strong> și <strong>changeConclusion</strong> sunt acum mutabile acolo unde override-urile pentru STRENGTHENING le reasignează.</li>
-    <li>Elimină riscul de eroare JavaScript de tip <strong>Assignment to constant variable</strong> în cazurile <strong>inside cloud</strong> și <strong>below cloud</strong>.</li>
-    <li>Nu modifică engine-ul, state machine-ul, phase mapping-ul, Varianta B în execution sau logica LITE.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-  <div class="meta">Previous</div>
-  <h3>V10.7.6 — Indicator Snapshot clarity</h3>
-  <p>Upgrade peste V10.7.5 care păstrează engine-ul, execution layer și modificatorii de commentary, dar face vizibil motivul pentru care sistemul vede starea curentă.</p>
-  <ul>
-    <li>Added <strong>Indicator Snapshot</strong> în Current Market State: RSI (1W), MACD (1D), Ichimoku (1W), ETH vs BTC și starea curentă.</li>
-    <li>Snapshot-ul apare înaintea comentariilor și explică de ce sistemul vede regimul actual.</li>
-    <li>Stablecoin badge text diferențiază acum explicit <strong>Partial Data</strong> vs <strong>Synchronized</strong>.</li>
-    <li>Guide metadata și versioning editorial actualizate la <strong>V10.7.6</strong>.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-  <div class="meta">Previous</div>
-  <h3>V10.7.5 — Commentary nuance hardening</h3>
-  <p>Hardening patch peste V10.7.4: commentary-ul păstrează starea canonică, dar adaugă nuanță controlată în interiorul stărilor-cheie (maturity + direcția RSI + confirmarea ETH) fără să atingă engine-ul sau execution layer.</p>
-  <ul>
-    <li>buildNarrative primește acum și <strong>execution</strong>, astfel încât commentary-ul poate citi <strong>stateDuration</strong> fără să modifice engine-ul.</li>
-    <li>Added <strong>maturity</strong> (EARLY / MID / LATE) derivat din stateDuration pentru nuanță intra-stare.</li>
-    <li>Implemented minimal commentary overrides pentru <strong>BEAR CONFIRMED</strong>, <strong>BULL CONFIRMED</strong> și <strong>RECOVERY ATTEMPT</strong>.</li>
-    <li>Păstrează separarea clară între carduri și phase clarity, fără impact pe confidence, action sau target exposure.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-  <div class="meta">Previous</div>
-  <h3>V10.7.4 — Launch-ready stabilization</h3>
-  <p>Consolidează varianta de launch prin claritate de fază, mapare canonică și corecții de interpretare pentru ETH și Stablecoin.</p>
-  <ul>
-    <li>Phase path highlight folosește <strong>canonical state</strong> și nu mai lasă stări invizibile în Bear path / Recovery path.</li>
-    <li><strong>ETH context-aware</strong> în bear context: STRENGTH în bear este tradus corect ca scădere relativ mai lentă, nu piață constructivă.</li>
-    <li>Stablecoin Positioning rămâne complet izolat de engine și execution.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-  <div class="meta">Previous</div>
-  <h3>V10.7 — Phase clarity & stablecoin integration</h3>
-  <p>Introduce claritatea de fază în UI și integrează cardul de Stablecoin Positioning ca strat contextual separat.</p>
-  <ul>
-    <li>Canonical mapping pentru phase path și current position.</li>
-    <li>Cardurile commentary sunt separate mai clar ca rol: phase, rel, conf, changed.</li>
-    <li>Stablecoin Positioning adăugat ca indicator contextual, fără influență asupra engine-ului.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-  <div class="meta">Previous</div>
-  <h3>V10.6 — Commentary Standard V2 foundation</h3>
-  <p>Fundamentul versiunii moderne de commentary: date reale vizibile, roluri separate pe carduri și limbaj mai uman, fără a atinge motorul.</p>
-  <ul>
-    <li>Data Health gate introdus și integrat în flow-ul principal.</li>
-    <li>Commentary Standard V2: WHAT / MEANING / CONCLUSION.</li>
-    <li>Separare clară între datele din subcarduri și comentariul explicativ.</li>
-  </ul>
-</div>
-
-<div class="changelog-entry">
-          <div class="meta">Historical</div>
-          <h3>V10.5.2 — Engine-aligned execution commentary</h3>
-          <p>Curăță limbajul din Execution Layer și îl aliniază strict cu starea motorului, fără să modifice logică de engine, confidence sau sizing.</p>
+        <div class="changelog-entry">
+          <div class="meta">Current</div>
+          <h3>V11.9 — V11 Context Layer · Release</h3>
+          <p>Versiune majoră. Adaugă un Context Layer read-only deasupra engine-ului V10.7.7.3, care rămâne complet neatins. Engine-ul, state machine-ul și execution layer-ul nu au fost modificate.</p>
           <ul>
-            <li>Execution Layer nu mai afișează referința veche V9.7 în cardul principal.</li>
-            <li>Signal confidence este etichetat clar pentru a evita confuzia dintre încrederea în semnal și optimismul bullish.</li>
-            <li>Action labels sunt acum aliniate cu starea curentă: WEAKENING → REDUCE (DEFENSIVE), RECOVERY ATTEMPT → WATCH / PROBE, BULL OVEREXTENDED → HOLD / PROTECT.</li>
-            <li>Commentary-ul de execuție este mapat state-by-state, cu wording uman și fără contradicții între action, exposure și conclusion.</li>
-            <li>Top / overextended folosește mesaj clar: nu mai crești expunerea, menții pozițiile și protejezi profitul.</li>
+            <li><strong>Bloc A — OE Watchdog:</strong> detectare episoade BULL OVEREXTENDED cu discriminator TIP A (fără maxime noi) vs TIP B (nou maxim >3% în 14 zile). dayCount calculat din entryDate cu v11RuntimeClock — nu mai e incrementat la fiecare refresh.</li>
+            <li><strong>Bloc B — Bear Context Filter:</strong> trei niveluri validate pe 3161 zile istorice: BEAR_RALLY_BELOW (avg ret30 −3.1%), BEAR_RALLY_INSIDE (−2.1%), TRANSITION_RALLY (inside cloud + acumulare avansată, avg ret30 +12.5%).</li>
+            <li><strong>Bloc C — Accumulation Context:</strong> calculator de context (nu bloc independent) — alimentează Bloc B (isAdvancedAccum) și narrative STABILIZATION.</li>
+            <li><strong>Bloc D — Correction Types:</strong> CORRECTION_EARLY / HEALTHY / BREAKDOWN bazat pe durata corecției și evoluția Ichimoku. dayCount prin v11RuntimeClock pentru compatibilitate replay.</li>
+            <li><strong>Bloc E — Regime Layer:</strong> macroLabel ambient (above / inside / below cloud) — nu suprascrie commentary, by design.</li>
+            <li><strong>Commentary override:</strong> getV11CommentaryOverride() produce 9 chei cu texte distincte și suprascrie post-buildNarrative câmpurile snapshot, market, btc, phase și header.</li>
+            <li><strong>CONFIRMED_RECOVERY:</strong> redesenat cu memorie de state — apare doar 14 zile după dezactivarea Bloc B cu Ichimoku above cloud. Redus de la 44.5% la 3.9% din zile.</li>
+            <li><strong>Fix sincronizare:</strong> api.binance.com → data-api.binance.vision cu fallback api3.binance.com (compatibilitate UK).</li>
+            <li><strong>Fix runtime:</strong> const → let pentru marketWhat, changeMeaning, changeConclusion în buildNarrative (elimina Assignment to constant variable).</li>
+            <li><strong>Fix refresh:</strong> mutex _refreshInProgress previne refresh-uri simultane.</li>
+            <li><strong>Fix journal daily:</strong> celulele daily afișau "ay" în loc de ziua din lună — rezolvat prin citire corectă din dateKey.</li>
+            <li>Eliminat card "Market Context — V11" redundant și apel updateV11UI() inutil din renderDashboard.</li>
           </ul>
         </div>
 
         <div class="changelog-entry">
           <div class="meta">Previous</div>
-          <h3>V10.4.6 — Journal Core Fixed + Replay Stable UI</h3>
-          <p>Păstrează fixurile de Journal core și stabilizează deschiderea UI pentru Replay 2024 → Present folosind exact butonul existent din bottom doc bar, fără butoane noi în interfață.</p>
+          <h3>V10.7.7.3 — Commentary runtime fix</h3>
+          <p>Patch obligatoriu peste V10.7.7.2 care elimină eroarea de runtime din buildNarrative când override-urile pentru STRENGTHENING reasignau variabile declarate cu const.</p>
           <ul>
-            <li>Butonul existent Replay 2024→Present deschide acum panoul și prin onclick direct, nu doar prin event listener JS.</li><li>Outcome tracking T+3 / T+7 / T+14 folosește acum snapshot-ul exact de la data orizontului, nu prețul curent din ziua în care deschizi dashboardul.</li><li>Weekly / monthly journal agregă corect din câmpurile reale: dateKey, marketState, targetExposure, btcPrice, ethPrice.</li><li>RECOVERY ATTEMPT persistent: target ajustat de la 52/62 la 55/65, în funcție de poziția față de EMA50.</li><li>RECOVERY ATTEMPT stabilizat: target ajustat de la 58/68 la 60/70, fără a modifica breakdown / bear logic.</li><li>Replay 2024 → present direct în dashboard, folosind daily klines BTCUSDT, ETHUSDT și ETHBTC din Binance spot.</li>
-            <li>Warm-up implicit din 2022 pentru EMA200, RSI, MACD și Ichimoku weekly agregat din datele zilnice.</li>
-            <li>Summary de simulare: average exposure, high-confidence frequency, flip count și contradictory flip count.</li>
-            <li>Forward usefulness pe T+7 și T+14 pentru bucket-urile risk-on / neutral / risk-off.</li>
-            <li>Distribuție pe state: count, average exposure, average T+7 și average T+14.</li>
-            <li>Export JSON pentru replay-ul complet.</li>
+            <li>marketWhat, changeMeaning și changeConclusion devin mutabile pentru override-urile STRENGTHENING.</li>
+            <li>Elimină eroarea JavaScript Assignment to constant variable în cazurile inside / below cloud.</li>
+            <li>Nu modifică engine-ul, state machine-ul sau logica LITE.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.7.2 — Full strengthening alignment</h3>
+          <ul>
+            <li>What's Changed și BTC Key Levels aliniate contextual pentru STRENGTHENING în inside / below cloud.</li>
+            <li>Verificare LITE-safe: fără modificări de logică în derivarea summary/verdict.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.7.1 — Strengthening clamp hardening</h3>
+          <ul>
+            <li>strengtheningMacro unificat pe data.btc.weekly.ichimoku.relation în commentary.</li>
+            <li>Fallback sigur la inside cloud când contextul Ichimoku nu este disponibil.</li>
+            <li>Current Market State aliniat mai clar pentru STRENGTHENING în contexte inside / below cloud.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.7 — Strengthening execution clamp</h3>
+          <ul>
+            <li>Varianta B în execution: STRENGTHENING plafonat contextual — above cloud: comportament actual, inside cloud: cap 65%, below cloud: cap 55%.</li>
+            <li>Commentary alignment pentru STRENGTHENING în inside / below cloud.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.6 — Indicator Snapshot clarity</h3>
+          <ul>
+            <li>Added Indicator Snapshot în Current Market State: RSI (1W), MACD (1D), Ichimoku (1W), ETH vs BTC și starea curentă.</li>
+            <li>Snapshot-ul apare înaintea comentariilor și explică de ce sistemul vede regimul actual.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.5 — Commentary nuance hardening</h3>
+          <ul>
+            <li>buildNarrative primește execution pentru a citi stateDuration.</li>
+            <li>Maturity derivat intern: EARLY / MID / LATE.</li>
+            <li>Override-uri minime pentru BEAR CONFIRMED / BULL CONFIRMED / RECOVERY ATTEMPT.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7.4 — Launch-ready stabilization</h3>
+          <ul>
+            <li>ETH context-aware fix în bear context.</li>
+            <li>Stablecoin badge și limitation polish.</li>
+            <li>Phase clarity, canonical path mapping, launch cleanup.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.7 — Phase clarity &amp; stablecoin integration</h3>
+          <ul>
+            <li>Market Phase card cu path vizualizat (bear path / recovery path).</li>
+            <li>Canonical mapping helpers și phase current clarity.</li>
+            <li>Stablecoin context card integrat.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.6 — Commentary Standard V2</h3>
+          <ul>
+            <li>Data health gate și card role separation.</li>
+            <li>Narrative restructuring base.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.5.5 — Tracking analytics layer</h3>
+          <ul>
+            <li>Replay cu tracking analytics: decision class, expected direction, T+3 / T+7 / T+14 labels.</li>
+            <li>Journal snapshots salvează câmpuri de tracking fără a modifica engine sau execution.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.5.4 — Final hardening patch</h3>
+          <ul>
+            <li>BULL CONFIRMED execution blocat la HOLD / MAINTAIN.</li>
+            <li>DecisionClass reconstruit pe state + action + exposure.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.5.2 — Engine-aligned execution commentary</h3>
+          <ul>
+            <li>Execution commentary aliniat cu engine output.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
+          <h3>V10.4.6 — Journal Core + Replay Stable UI</h3>
+          <ul>
+            <li>Journal core stabilizat. Replay UI stabil.</li>
           </ul>
         </div>
 
         <div class="changelog-entry">
           <div class="meta">Previous</div>
           <h3>V10.4.1 — Change Tracker / Journal integration</h3>
-          <p>Patch de corecție pentru integrarea Journal-ului exact în What’s Changed → Change Tracker, fără a muta logica în alt loc și fără a dubla dashboard-ul.</p>
           <ul>
-            <li>Journal-ul rămâne în Change Tracker și păstrează rolul de memorie + audit + validation layer.</li>
-            <li>Outcome tracking integrat pentru T+3 / T+7 / T+14, folosind direcția și magnitudinea mișcării BTC față de snapshot.</li>
-            <li>Arhivare automată a snapshot-urilor mai vechi, cu păstrarea accesului prin view-urile Daily / Weekly / Monthly.</li>
-            <li>Summary strip extins: accuracy T+7, pending outcomes, archive periods și număr de snapshot-uri arhivate.</li>
-            <li>Detail view extins în Change Tracker: PRO verdict, What Changed, Micro vs Macro, LITE translation și validation outcomes.</li>
-            <li>Storage migrat și consolidat într-un store V10.4.1, cu suport de migrare din jurnalul vechi.</li>
-            <li>Nu a fost mutată filosofia dashboard-ului: rămâne regime-first, confirmation-first și orientat pe capital protection.</li>
+            <li>Change Tracker și Journal integrate în același panou.</li>
           </ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Older</div>
+          <div class="meta">Previous</div>
           <h3>V9.9 — Threshold tuning</h3>
-          <ul>
-            <li>Ajustări fine pe pragurile de execuție pentru strengthening, weakening și overextended.</li>
-            <li>LITE ETH weighting redus pentru a evita supra-reacțiile.</li>
-            <li>Verdict global LITE mai conservator în zone mixte.</li>
-          </ul>
+          <ul><li>Calibrare praguri pentru stările de tranziție.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Stability fixes</div>
+          <div class="meta">Previous</div>
           <h3>V9.8.5 — Breakdown override fix</h3>
-          <ul>
-            <li>BREAKDOWN RISK nu mai este suprascris de STRUCTURAL WEAKNESS.</li>
-            <li>Hold window nu mai blochează reducerea în damage states.</li>
-          </ul>
+          <ul><li>Fix override breakdown când damage-ul micro devine real.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Layout</div>
-          <h3>V9.8 — Layout adjustments</h3>
-          <ul>
-            <li>Change Tracker mutat în cardul What’s Changed.</li>
-            <li>Guide și Changelog mutate jos, integrate în pagină.</li>
-            <li>LITE păstrat sus pentru separare clară față de sync.</li>
-          </ul>
-        </div>
-
-        <div class="changelog-entry">
-          <div class="meta">Journal</div>
+          <div class="meta">Previous</div>
           <h3>V9.7 — Journal + Change Tracker</h3>
-          <ul>
-            <li>Journal integrat în dashboard.</li>
-            <li>Snapshot-uri zilnice PRO + LITE.</li>
-            <li>Export JSON și audit al deciziilor.</li>
-          </ul>
+          <ul><li>Prima versiune a Journal și Change Tracker.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Execution memory</div>
+          <div class="meta">Previous</div>
           <h3>V9.5 — Execution Memory</h3>
-          <ul>
-            <li>Persistență pe stări.</li>
-            <li>Minimum hold window după schimbări mari.</li>
-            <li>Threshold pentru a evita rebalansările mici și dese.</li>
-          </ul>
+          <ul><li>Execution memory cu smoothing și anti-flip logic.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Execution layer</div>
+          <div class="meta">Previous</div>
           <h3>V9 — Execution Layer</h3>
-          <ul>
-            <li>Eliminare logică binary IN / OUT.</li>
-            <li>Țintă de expunere pe baza stării curente.</li>
-            <li>Reguli conservative pentru conflict, breakdown și overextension.</li>
-          </ul>
+          <ul><li>Primul execution layer cu target exposure și action label.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Final V8</div>
+          <div class="meta">Previous</div>
           <h3>V8.3 — Logic Patch</h3>
-          <ul>
-            <li>Escaladare mai clară din conflict în breakdown când damage-ul devine real.</li>
-            <li>Bear exhaustion rafinat pentru a evita semnalele premature de bounce.</li>
-          </ul>
+          <ul><li>Structural conflict și breakdown override rafinate.</li></ul>
         </div>
 
         <div class="changelog-entry">
-          <div class="meta">Audit</div>
-          <h3>V8.2 — Cleanup & Audit</h3>
-          <ul>
-            <li>Curățare de logică și etichete.</li>
-            <li>Fixuri de comunicare pentru ETH/BTC și scenariile relative vs absolute.</li>
-          </ul>
+          <div class="meta">Previous</div>
+          <h3>V8.2 — Cleanup &amp; Audit</h3>
+          <ul><li>Curățare logică, fixuri ETH/BTC și scenarii relative vs absolute.</li></ul>
         </div>
+
       </div>`;
   }
 
