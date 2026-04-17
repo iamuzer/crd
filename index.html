@@ -3018,62 +3018,62 @@ async function fetchData() {
       }
     }
     const MAP = {
-      // ── Bloc A — OE Watchdog ──────────────────────────────────
+      // ── Bloc A — Creștere Supraextinsă ────────────────────────
       OE_TIP_A: {
         key: 'OE_TIP_A',
-        what: 'Prețul se află în zona supraextinsă, dar nu mai face maxime noi.',
-        meaning: 'Semnele de slăbire internă cresc. Episoadele OE fără noi maxime marchează frecvent topuri sau pre-corecții.',
-        conclusion: 'Protejezi profitul. Nu adaugi expunere în această fază.'
+        what: 'Prețul se află la niveluri ridicate după o creștere susținută, dar impulsul slăbește — de câteva zile piața nu mai reușește să facă maxime noi.',
+        meaning: 'Contextul este unul de supraextindere fără continuare imediată. Istoric, această situație nu a condus automat la un vârf — din 250 cazuri similare analizate, piața a continuat să urce în aproximativ jumătate din situații, cu creșteri medii de 5% în luna următoare. Supraextinderea în sine nu invalidează trendul, dar semnalează că mișcarea își pierde din impuls.',
+        conclusion: 'Contextul nu justifică creșterea agresivă a expunerii, dar nici ieșirea grăbită. Pozițiile existente pot fi menținute, iar direcția următoare se va clarifica prin reluarea maximelor sau prin începutul unei corecții.'
       },
       OE_TIP_B: {
         key: 'OE_TIP_B',
-        what: 'Prețul continuă să urce și face noi maxime în zona supraextinsă.',
-        meaning: 'Trendul rămâne activ. Istoric, episoadele OE cu noi maxime au continuat semnificativ înainte de corecție.',
-        conclusion: 'Menții pozițiile existente. Nu adaugi agresiv și nu confunzi extensia cu semnalul de ieșire.'
+        what: 'Prețul se află la niveluri ridicate după o creștere susținută și continuă să stabilească maxime noi.',
+        meaning: 'Trendul rămâne puternic chiar în condiții de supraextindere. Istoric, din 116 cazuri similare, piața a continuat să urce în peste jumătate din situații, cu câștiguri medii de 11% în luna următoare. Supraextinderea cu maxime noi nu este echivalentă cu un vârf — structura încă susține mișcarea.',
+        conclusion: 'Contextul rămâne constructiv pentru pozițiile existente, fără a forța creșterea agresivă a expunerii. O corecție poate apărea oricând în zonă supraextinsă, dar absența ei în forma unui breakdown clar menține trendul valid.'
       },
-      // ── Bloc D — Correction Types ─────────────────────────────
+      // ── Bloc D — Corecții ─────────────────────────────────────
       CORRECTION_EARLY: {
         key: 'CORRECTION_EARLY',
-        what: 'Piața se află în primele săptămâni de slăbiciune.',
-        meaning: 'Prea devreme pentru a clasifica tipul de corecție. Ichimoku rămâne intact, dar direcția nu este clară.',
-        conclusion: 'Monitorizezi evoluția Ichimoku în săptămânile 4-8. Nu reacționezi la zgomot.'
+        what: 'Piața coboară sau stagnează de câteva zile, însă structura mare rămâne intactă.',
+        meaning: 'Este prea devreme pentru a clasifica tipul de corecție. Istoric, majoritatea corecțiilor în bull market se rezolvă în 2-4 săptămâni, fără a invalida trendul principal.',
+        conclusion: 'Zgomotul primelor zile nu justifică reacții. Direcția reală se va clarifica în săptămânile 4-8, prin reluarea creșterii sau prin deteriorarea structurii.'
       },
       CORRECTION_HEALTHY: {
         key: 'CORRECTION_HEALTHY',
-        what: 'Corecție în curs cu structura macro intactă.',
-        meaning: 'Ichimoku rămâne above cloud. Corecțiile de acest tip sunt frecvente în bull markets și nu invalidează trendul principal.',
-        conclusion: 'Trendul nu este invalidat. Repoziționarea graduală rămâne o opțiune validă.'
+        what: 'Corecția durează de peste o lună, dar structura săptămânală rămâne pozitivă — Ichimoku continuă să se mențină deasupra norului.',
+        meaning: 'Context tipic pentru corecțiile sănătoase din bull markets. Trendul principal nu este invalidat — piața consolidează înainte de a continua.',
+        conclusion: 'Contextul nu este unul de panică. Re-acumularea graduală rămâne o opțiune validă, atât timp cât structura mare se menține.'
       },
       CORRECTION_BREAKDOWN: {
         key: 'CORRECTION_BREAKDOWN',
-        what: 'Corecția se adâncește și structura macro se deteriorează.',
-        meaning: 'Ichimoku a intrat în cloud sau sub cloud. Deteriorarea structurală crește probabilitatea că aceasta nu e o simplă corecție.',
-        conclusion: 'Prudență sporită justificată. Reducerea expunerii devine prioritară.'
+        what: 'Corecția durează de peste o lună, iar structura a început să se deterioreze — Ichimoku a intrat în nor sau a trecut sub el.',
+        meaning: 'Probabilitatea crește că mișcarea nu mai este o corecție obișnuită, ci începutul unei schimbări mai largi de trend. Nu este încă bear confirmat, dar semnele structurale sunt îngrijorătoare.',
+        conclusion: 'Reducerea expunerii devine prioritară. Așteptarea unei reveniri poate fi costisitoare dacă structura continuă să se erodeze.'
       },
       // ── Bloc B — Bear Context ─────────────────────────────────
       BEAR_RALLY_BELOW: {
         key: 'BEAR_RALLY_BELOW',
-        what: 'Prețul crește, dar mișcarea apare într-un context structural negativ.',
-        meaning: 'Rally într-un bear market. Mișcarea este probabil temporară și poate fi un bull trap.',
-        conclusion: 'Nu trata această mișcare ca început de trend. Risc ridicat.'
+        what: 'Prețul este în creștere, însă structura săptămânală rămâne clar descendentă. Mișcarea apare într-un context unde tendința mare este încă în jos.',
+        meaning: 'Aceste urcări sunt denumite bear rally — momente în care piața pare să se redreseze, dar contextul structural rămâne negativ. Istoric, din 58 cazuri similare, 71% au continuat scăderea în luna următoare, cu pierderi medii de 9%. Rally-ul nu reprezintă o schimbare de trend, ci o pauză în mișcarea descendentă.',
+        conclusion: 'Mișcarea nu poate fi tratată ca o revenire reală. Contextul nu este unul în care să fie justificată asumarea de risc direcțional pozitiv — riscul ca prețul să revină în scădere rămâne ridicat.'
       },
       BEAR_RALLY_INSIDE: {
         key: 'BEAR_RALLY_INSIDE',
-        what: 'Prețul recuperează într-o zonă de tranziție.',
-        meaning: 'Contextul nu este confirmat. Rally-ul poate continua, dar riscul de eșec rămâne ridicat.',
-        conclusion: 'Fii prudent. Nu există confirmare de trend.'
+        what: 'Prețul urcă într-o zonă structurală ambiguă, unde piața nu a decis încă o direcție clară.',
+        meaning: 'Contextul este unul de incertitudine — nu mai este bear confirmat, dar nici nu s-a stabilit o structură pozitivă. Istoric, din 41 cazuri similare, piața a urcat în aproximativ jumătate din situații și a scăzut în cealaltă jumătate, fără un pattern dominant.',
+        conclusion: 'Fără semnale de confirmare suplimentare, contextul nu justifică mișcări ferme într-o direcție sau alta. Prudența este răspunsul potrivit într-o zonă cu rezultat istoric mixt.'
       },
       TRANSITION_RALLY: {
         key: 'TRANSITION_RALLY',
-        what: 'Prețul crește într-un context de acumulare avansată.',
-        meaning: 'Există semne de tranziție din bear market. Mișcarea are șanse mai mari să fie sustenabilă.',
-        conclusion: 'Posibil început de trend, dar necesită confirmare structurală.'
+        what: 'Prețul urcă după o perioadă prelungită de scădere (peste 6 luni) și după o pierdere substanțială față de maximele anterioare.',
+        meaning: 'Acest tip de mișcare este denumit transition rally — o încercare a pieței de a trece din bear în bull după o acumulare avansată. Contextul istoric a fost favorabil. Din 107 cazuri similare, piața a urcat în 84% din situații, cu câștiguri medii de 16% în luna următoare. Statisticile indică faptul că aceste momente au condus mai des la schimbări reale de regim decât la eșecuri.',
+        conclusion: 'Contextul devine constructiv pentru re-acumulare graduală. Validarea completă a tranziției vine odată cu trecerea Ichimoku deasupra norului săptămânal.'
       },
       CONFIRMED_RECOVERY: {
         key: 'CONFIRMED_RECOVERY',
-        what: 'Prețul continuă să crească într-un context structural pozitiv.',
-        meaning: 'Mișcarea este susținută de structură. Probabilitate mai mare de continuare a trendului.',
-        conclusion: 'Trendul este validat. Expunerea poate fi crescută gradual.'
+        what: 'Prețul urcă, iar structura mare a trecut recent deasupra norului — primul semnal real că piața a ieșit din contextul negativ.',
+        meaning: 'Recovery-ul este confirmat structural, dar rămâne proaspăt și nevalidat pe termen lung. Din cazurile istorice, piața a continuat să urce în 58% din situații, cu câștiguri medii de 5% în luna următoare. Rezultatele pozitive sunt mai probabile, dar nu garantate.',
+        conclusion: 'Contextul devine favorabil pentru reluarea graduală a expunerii. Validarea completă vine odată cu menținerea structurii deasupra norului pentru câteva săptămâni suplimentare.'
       }
     };
     return key ? MAP[key] : null;
@@ -4597,7 +4597,7 @@ async function fetchData() {
   }
 
   
-  function getLiteSummary(execution, engine, data) {
+  function getLiteSummary(execution, engine, data, v11Commentary) {
     const btc = data.btc;
     const eth = data.eth;
     const state = engine.detailed || engine.simplified;
@@ -4666,6 +4666,28 @@ async function fetchData() {
     } else if (globalExposure >= 45 && btcExposure < 60) {
       globalVerdict = 'Prudență. Nu crește riscul acum.';
       globalComment = 'Contextul este mixt. Păstrează doar expunere selectivă și evită deciziile agresive.';
+    }
+
+
+    // ── Override V11: aliniere LITE cu contextul V11 pentru key-urile
+    //    care contrazic engine-ul (bear rally / correction breakdown). ─────
+    if (v11Commentary) {
+      if (v11Commentary.key === 'BEAR_RALLY_BELOW') {
+        btcComment = 'BTC urcă, dar structura săptămânală rămâne clar descendentă. Istoric, 71% din aceste rally-uri au fost urmate de scăderi.';
+        ethComment = 'ETH urmează direcția BTC într-un context negativ. Rezistența relativă nu compensează structura macro.';
+        globalVerdict = 'Bear rally activ. Expunere redusă.';
+        globalComment = 'Mișcarea actuală apare pe fondul unei structuri descendente. Contextul nu justifică asumarea de risc direcțional pozitiv — rally-ul nu reprezintă o schimbare de trend, ci o pauză în scădere.';
+      } else if (v11Commentary.key === 'BEAR_RALLY_INSIDE') {
+        btcComment = 'BTC urcă într-o zonă de tranziție ambiguă. Contextul nu este confirmat nici pozitiv, nici negativ.';
+        ethComment = 'ETH reflectă incertitudinea contextului BTC. Fără confirmare, contribuția la risc rămâne mixtă.';
+        globalVerdict = 'Zonă ambiguă. Prudență recomandată.';
+        globalComment = 'Piața nu a decis încă o direcție clară. Istoric, situațiile similare au condus aproape egal la continuare pozitivă și negativă. Prudența este răspunsul potrivit în absența confirmărilor suplimentare.';
+      } else if (v11Commentary.key === 'CORRECTION_BREAKDOWN') {
+        btcComment = 'BTC se află într-o corecție care a început să deterioreze structura. Nu mai este zgomot obișnuit.';
+        ethComment = 'ETH urmează deteriorarea BTC. Contextul defensiv rămâne valabil pentru ambele.';
+        globalVerdict = 'Corecție în deteriorare. Prioritate: protecție.';
+        globalComment = 'Corecția se adâncește și structura începe să cedeze. Probabilitatea crește ca mișcarea să nu mai fie o corecție obișnuită, ci începutul unei schimbări mai largi de trend. Reducerea expunerii devine prioritară.';
+      }
     }
 
     return {
@@ -4830,7 +4852,19 @@ function renderDashboard(data, engine) {
       }
       // Header — prefix cu label V11
       if (text.header && _v11Commentary.key !== 'CONFIRMED_RECOVERY') {
+        // V11 header handling: înlocuire completă când V11 contrazice engine-ul,
+      // altfel concatenare (V11 amplifică sau e neutru față de engine).
+      const _v11ContradictoryKeys = ['BEAR_RALLY_BELOW','BEAR_RALLY_INSIDE','CORRECTION_BREAKDOWN'];
+      if (_v11ContradictoryKeys.includes(_v11Commentary.key)) {
+        const _v11HeaderMap = {
+          BEAR_RALLY_BELOW:     '🔴 BEAR RALLY — Urcare într-o structură descendentă.',
+          BEAR_RALLY_INSIDE:    '⚠ BEAR RALLY — Zonă de tranziție, fără confirmare.',
+          CORRECTION_BREAKDOWN: '🔴 CORECȚIE ÎN DETERIORARE — Structura cedează.'
+        };
+        text.header = _v11HeaderMap[_v11Commentary.key] || text.header;
+      } else {
         text.header = `${text.header} · ${_v11Commentary.key.replace(/_/g,' ')}`;
+      }
       }
       text.v11CommentaryKey = _v11Commentary.key;
     }
@@ -4947,7 +4981,7 @@ function renderDashboard(data, engine) {
     setText('execConclusion', execution.conclusion);
     setList('execDetails', execution.notes);
 
-    currentLiteSnapshot = getLiteSummary(execution, engine, data);
+    currentLiteSnapshot = getLiteSummary(execution, engine, data, _v11Commentary);
     currentJournalSnapshot = buildJournalSnapshot(data, engine, execution, currentLiteSnapshot);
     upsertJournalSnapshot(currentJournalSnapshot, 'auto');
 
@@ -5991,7 +6025,7 @@ function buildChangelogPanel() {
         <div class="changelog-entry">
           <div class="meta">Current</div>
           <h3>V11.9 — V11 Context Layer · Release</h3>
-          <p>Versiune majoră. Adaugă un Context Layer read-only deasupra engine-ului V10.7.7.3, care rămâne complet neatins. Engine-ul, state machine-ul și execution layer-ul nu au fost modificate.</p>
+          <p>Versiune majoră. Adaugă un Context Layer read-only deasupra engine-ului V10.7.7.3, care rămâne complet neatins. Engine-ul, state machine-ul și execution layer-ul nu au fost modificate. Textele commentary au fost rescrise pentru aliniere cu stilul V10 (ton observator, narativ, cu date statistice din simulări).</p>
           <ul>
             <li><strong>Bloc A — OE Watchdog:</strong> detectare episoade BULL OVEREXTENDED cu discriminator TIP A (fără maxime noi) vs TIP B (nou maxim >3% în 14 zile). dayCount calculat din entryDate cu v11RuntimeClock — nu mai e incrementat la fiecare refresh.</li>
             <li><strong>Bloc B — Bear Context Filter:</strong> trei niveluri validate pe 3161 zile istorice: BEAR_RALLY_BELOW (avg ret30 −3.1%), BEAR_RALLY_INSIDE (−2.1%), TRANSITION_RALLY (inside cloud + acumulare avansată, avg ret30 +12.5%).</li>
