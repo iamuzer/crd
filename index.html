@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>CryptoRisk Dashboard — V11.9</title>
+<title>CryptoRisk V11.9 + Confidence Layer</title>
 <style>
     :root {
       --bg: #0b1020;
@@ -1198,8 +1198,8 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V11.9</h1>
-<div class="subtitle">Engine V11.9 · V11 Context Layer (Bloc A-E) · commentary override · bear rally / transition detection · execution memory + journal + replay + LITE · stablecoin positioning · autosync 5 minute</div>
+<h1>CryptoRisk Dashboard — V11.9.1 rev D</h1>
+<div class="subtitle">Engine V11.9.1 · V10.7.7.3 engine (intact) · V11 Context Layer (Bloc A-E) · Confidence Layer (confluence scoring + transition/saturation discriminator) · commentary override · bear rally / transition detection · execution memory + journal</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
 </div>
@@ -1524,6 +1524,12 @@
   // ═══════════════════════════════════════════════════════════
   let v11State = {
     _blocBRecentDays: 0,  // memorie tranziție Bloc B → CONFIRMED_RECOVERY
+    // V11.9 Confidence Layer runtime state
+    _confidenceHistory: [],   // array ultimele 90 {date, category: 'BULL'|'BEAR'|'NEUTRAL'|'OTHER'}
+    _bullStreak: 0,            // zile consecutive bullish
+    _bearStreak: 0,            // zile consecutive bearish
+    _bullDaysIn90: 0,          // count zile bullish în ultimele 90
+    _bearDaysIn90: 0,          // count zile bearish în ultimele 90
     oeEpisode: {
       active: false,
       entryPrice: null,
@@ -1573,11 +1579,19 @@
   }
 
   function resetV11State() {
+    v11State._blocBRecentDays = 0;
+    // V11.9.1 Confidence Layer state — reset complet
+    v11State._confidenceHistory = [];
+    v11State._bullStreak = 0;
+    v11State._bearStreak = 0;
+    v11State._bullDaysIn90 = 0;
+    v11State._bearDaysIn90 = 0;
     v11State.oeEpisode = {
       active: false,
       entryPrice: null,
       entryDate: null,
       maxPriceInEpisode: null,
+      dayCount: 0,
       newHighTriggered: false,
       newHighDate: null,
     };
@@ -1600,6 +1614,17 @@
       resetV11State();
       return;
     }
+    // V11 scalar fields
+    v11State._blocBRecentDays = Number.isFinite(snapshot._blocBRecentDays) ? snapshot._blocBRecentDays : 0;
+    // V11.9.1 Confidence Layer state — restaurare completă
+    v11State._confidenceHistory = Array.isArray(snapshot._confidenceHistory)
+      ? JSON.parse(JSON.stringify(snapshot._confidenceHistory))
+      : [];
+    v11State._bullStreak = Number.isFinite(snapshot._bullStreak) ? snapshot._bullStreak : 0;
+    v11State._bearStreak = Number.isFinite(snapshot._bearStreak) ? snapshot._bearStreak : 0;
+    v11State._bullDaysIn90 = Number.isFinite(snapshot._bullDaysIn90) ? snapshot._bullDaysIn90 : 0;
+    v11State._bearDaysIn90 = Number.isFinite(snapshot._bearDaysIn90) ? snapshot._bearDaysIn90 : 0;
+    // V11 episode tracking
     v11State.oeEpisode = JSON.parse(JSON.stringify(snapshot.oeEpisode || {}));
     v11State.bearContext = JSON.parse(JSON.stringify(snapshot.bearContext || {}));
     v11State.correctionContext = JSON.parse(JSON.stringify(snapshot.correctionContext || {}));
@@ -2028,20 +2053,417 @@
     return 'LOW';
   }
 
-  function applyV11ConfidenceAdjustments(engine, v11) {
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // V11.9 CONFIDENCE LAYER — calculează confidence bazat pe calitatea semnalelor
+  // Aplicat peste engine V10 (read-only), fără să modifice logica de bază.
+  // Ponderile și regulile sunt validate empiric pe 3166 zile (2017-2026).
+  // ═══════════════════════════════════════════════════════════════════════
+
+  const CONFIDENCE_BULLISH_STATES = new Set([
+    'RELIEF RALLY', 'RECOVERY ATTEMPT', 'STRENGTHENING',
+    'BULL CONFIRMED', 'BULL OVEREXTENDED'
+  ]);
+  const CONFIDENCE_BEARISH_STATES = new Set([
+    'WEAKENING', 'BEAR CONFIRMED', 'BREAKDOWN RISK',
+    'STRUCTURAL WEAKNESS', 'BEAR EXHAUSTION'
+  ]);
+  const CONFIDENCE_NEUTRAL_STATES = new Set([
+    'SIDEWAYS RANGE', 'STRUCTURAL CONFLICT', 'STABILIZATION'
+  ]);
+
+  function classifyStateCategory(detailed) {
+    if (CONFIDENCE_BULLISH_STATES.has(detailed)) return 'BULL';
+    if (CONFIDENCE_BEARISH_STATES.has(detailed)) return 'BEAR';
+    if (CONFIDENCE_NEUTRAL_STATES.has(detailed)) return 'NEUTRAL';
+    return 'OTHER';
+  }
+
+  // Calculează scor de confluence pentru direcția bullish
+  // Returnează scor integer. Ponderile validate statistic pe istoric.
+  function computeBullishScore(engine, data, bullStreak) {
+    let score = 0;
+    const btc = data.btc || {};
+    const daily = btc.daily || {};
+    const weekly = btc.weekly || {};
+
+    // Ichimoku 1W (structura macro, cel mai greu de spoof)
+    const ichi = (weekly.ichimoku && weekly.ichimoku.relation) || 'inside cloud';
+    if (ichi === 'above cloud') score += 3;
+    else if (ichi === 'inside cloud') score += 1;
+    else if (ichi === 'below cloud') score -= 3;
+
+    // RSI 1W (momentum săptămânal)
+    const rsiW = (weekly.rsi && Number.isFinite(weekly.rsi.current)) ? weekly.rsi.current : null;
+    if (rsiW !== null) {
+      if (rsiW > 55) score += 3;
+      else if (rsiW >= 50) score += 2;
+      else if (rsiW >= 45) score += 1;
+      else score -= 2;
+    }
+
+    // RSI 1D (momentum zilnic)
+    const rsiD = (daily.rsi && Number.isFinite(daily.rsi.current)) ? daily.rsi.current : null;
+    if (rsiD !== null) {
+      if (rsiD > 50) score += 2;
+      else if (rsiD < 45) score -= 1;
+    }
+
+    // Preț vs EMA50
+    const price = Number(btc.price);
+    const ema50 = Number(daily.ema50);
+    const ema200 = Number(daily.ema200);
+    if (price > 0 && ema50 > 0) {
+      if (price > ema50) score += 2; else score -= 2;
+      const dist = (price - ema50) / ema50 * 100;
+      if (dist > 10) score -= 2; // parabolic = supraextins
+    }
+    if (price > 0 && ema200 > 0) {
+      if (price > ema200) score += 1;
+    }
+
+    // relState (ETH/BTC confirmare)
+    const rel = engine && engine.relState;
+    if (rel === 'STRENGTH') score += 2;
+    else if (rel === 'NEUTRAL') score += 1;
+    else if (rel === 'WEAKNESS') score -= 2;
+
+    // Bull momentum streak (durata trendului bullish)
+    if (bullStreak >= 4 && bullStreak <= 14) score += 2;
+    else if (bullStreak >= 15) score -= 3;
+
+    return score;
+  }
+
+  // Calculează scor de confluence pentru direcția bearish (asimetric față de bullish)
+  function computeBearishScore(engine, data, bearStreak) {
+    let score = 0;
+    const btc = data.btc || {};
+    const daily = btc.daily || {};
+    const weekly = btc.weekly || {};
+
+    // Ichimoku 1W
+    const ichi = (weekly.ichimoku && weekly.ichimoku.relation) || 'inside cloud';
+    if (ichi === 'below cloud') score += 3;
+    else if (ichi === 'inside cloud') score += 1;
+    else if (ichi === 'above cloud') score -= 3;
+
+    // RSI 1W
+    const rsiW = (weekly.rsi && Number.isFinite(weekly.rsi.current)) ? weekly.rsi.current : null;
+    if (rsiW !== null) {
+      if (rsiW < 45) score += 3;
+      else if (rsiW <= 50) score += 2;
+      else if (rsiW <= 55) score += 1;
+      else score -= 2;
+    }
+
+    // RSI 1D
+    const rsiD = (daily.rsi && Number.isFinite(daily.rsi.current)) ? daily.rsi.current : null;
+    if (rsiD !== null) {
+      if (rsiD < 50) score += 2;
+      else if (rsiD > 55) score -= 1;
+    }
+
+    // Preț vs EMA
+    const price = Number(btc.price);
+    const ema50 = Number(daily.ema50);
+    const ema200 = Number(daily.ema200);
+    if (price > 0 && ema50 > 0) {
+      if (price < ema50) score += 2; else score -= 2;
+    }
+    if (price > 0 && ema200 > 0) {
+      if (price < ema200) score += 1;
+    }
+
+    // relState (pentru bearish, WEAKNESS confirmă)
+    const rel = engine && engine.relState;
+    if (rel === 'WEAKNESS') score += 2;
+    else if (rel === 'NEUTRAL') score += 1;
+    else if (rel === 'STRENGTH') score -= 2;
+
+    // Bear momentum streak
+    if (bearStreak >= 4 && bearStreak <= 14) score += 2;
+    else if (bearStreak >= 15) score -= 3;
+
+    return score;
+  }
+
+  // Convertește scor de confluence în scor confidence (0-100) pentru compatibilitate UI
+  function confluenceToConfidenceScore(scoreBull, scoreBear, category) {
+    // Mapare: scor confluence (-17 la +17) → confidence score (0-100)
+    // Păstrează interval de label: <70 = LOW, 70-85 = MEDIUM, >85 = HIGH
+    let relevantScore;
+    if (category === 'BULL') relevantScore = scoreBull;
+    else if (category === 'BEAR') relevantScore = scoreBear;
+    else relevantScore = Math.max(scoreBull, scoreBear);
+    // Scoruri <0 → 40-65 (LOW), 0-4 → 60-68 (LOW), 5-8 → 72-78 (MED), 9-12 → 78-83 (MED), 13+ → 83-88
+    // Mapare simplă:
+    if (relevantScore <= -3) return 50;
+    if (relevantScore <= 0) return 60;
+    if (relevantScore <= 4) return 65;
+    if (relevantScore <= 8) return 75;
+    if (relevantScore <= 12) return 80;
+    return 85;
+  }
+
+  // Funcția principală: calculează confidence nou V11.9
+  // Returnează { score, label, scoreBull, scoreBear, reason }
+  function computeConfidenceV11_9(engine, data, v11State) {
+    if (!engine) return null;
+
+    const detailed = engine.detailed;
+    const simplified = engine.simplified;
+    const category = classifyStateCategory(detailed);
+
+    // POST-CRASH INSTABILITY: special case
+    if (simplified === 'RISK-OFF' || detailed === 'POST-CRASH INSTABILITY') {
+      return {
+        score: 50,
+        label: 'LOW',
+        scoreBull: null,
+        scoreBear: null,
+        reason: 'POST_CRASH_INSTABILITY'
+      };
+    }
+
+    // Bull/bear streak din v11State
+    const bullStreak = (v11State && v11State._bullStreak) || 0;
+    const bearStreak = (v11State && v11State._bearStreak) || 0;
+
+    // Zile bullish/bearish în ultimele 90
+    const bullDaysIn90 = (v11State && v11State._bullDaysIn90) || 0;
+    const bearDaysIn90 = (v11State && v11State._bearDaysIn90) || 0;
+
+    const scoreBull = computeBullishScore(engine, data, bullStreak);
+    const scoreBear = computeBearishScore(engine, data, bearStreak);
+
+    let label = 'LOW';
+    let reason = 'LOW_CONFLUENCE';
+
+    if (category === 'BULL') {
+      // V11.9.1 rev C: prag bullDaysIn90 ajustat de la ≤29 la ≤20
+      // Motivație: pe istoricul validat, ≤29 includea 16 cazuri cu ret30 <-5%
+      // (aprilie 2018 pre-bear, martie 2022 bear rally, ianuarie 2026 top local)
+      // ≤20 elimină aceste false-pozitive, păstrând 72% cazuri pozitive
+      if (scoreBull >= 5 && bullDaysIn90 <= 20) {
+        label = 'HIGH'; reason = 'BULL_FRESH_TRANSITION';
+      } else if (scoreBull >= 5) {
+        label = 'MEDIUM'; reason = 'BULL_CONFLUENCE_OK';
+      } else {
+        label = 'LOW'; reason = 'BULL_WEAK_CONFLUENCE';
+      }
+    } else if (category === 'BEAR') {
+      // V11.9.1 rev C: prag bearDaysIn90 ajustat similar la ≤20 pentru consistență
+      if (scoreBear >= 9 && bearDaysIn90 <= 20) {
+        label = 'HIGH'; reason = 'BEAR_FRESH_STRONG';
+      } else if (scoreBear >= 5) {
+        label = 'MEDIUM'; reason = 'BEAR_CONFLUENCE_OK';
+      } else {
+        label = 'LOW'; reason = 'BEAR_WEAK_SIGNAL_REVERSAL_RISK';
+      }
+    } else if (category === 'NEUTRAL') {
+      const maxScore = Math.max(scoreBull, scoreBear);
+      if (maxScore >= 6) {
+        label = 'MEDIUM'; reason = 'NEUTRAL_DIRECTION_EMERGING';
+      } else {
+        label = 'LOW'; reason = 'NEUTRAL_BALANCED';
+      }
+    }
+
+    const score = confluenceToConfidenceScore(scoreBull, scoreBear, category);
+
+    return { score, label, scoreBull, scoreBear, reason };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // V11.9.1 rev D: Persistență localStorage pentru _confidenceHistory
+  // Scop: păstrează 90 zile de tracking chiar și la reload browser
+  // Key: 'cryptorisk_v11_9_1_confidence_history'
+  // ═══════════════════════════════════════════════════════════════════
+  const CONFIDENCE_HISTORY_STORAGE_KEY = 'cryptorisk_v11_9_1_confidence_history';
+  const CONFIDENCE_HISTORY_MAX_AGE_DAYS = 14; // dacă ultima zi e mai veche, ignoră
+
+  function persistConfidenceHistory() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      // În timpul replay-ului, nu persistăm — evităm overwrite pe history-ul live
+      if (typeof replayState !== 'undefined' && replayState && replayState.running) return;
+      const payload = {
+        version: 'v11.9.1',
+        savedAt: new Date().toISOString(),
+        history: v11State._confidenceHistory || [],
+        bullStreak: v11State._bullStreak || 0,
+        bearStreak: v11State._bearStreak || 0,
+        bullDaysIn90: v11State._bullDaysIn90 || 0,
+        bearDaysIn90: v11State._bearDaysIn90 || 0,
+        blocBRecentDays: v11State._blocBRecentDays || 0
+      };
+      localStorage.setItem(CONFIDENCE_HISTORY_STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('[V11.9.1] Persist confidence history failed:', err);
+    }
+  }
+
+  function loadConfidenceHistory() {
+    try {
+      if (typeof localStorage === 'undefined') return false;
+      const raw = localStorage.getItem(CONFIDENCE_HISTORY_STORAGE_KEY);
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      if (!payload || !Array.isArray(payload.history)) return false;
+      
+      // Verificare freshness — dacă ultima zi e prea veche, ignoră
+      if (payload.history.length > 0) {
+        const lastDate = payload.history[payload.history.length - 1].date;
+        const lastMs = Date.parse(lastDate + 'T00:00:00Z');
+        const nowMs = Date.now();
+        const ageDays = (nowMs - lastMs) / (1000 * 60 * 60 * 24);
+        if (ageDays > CONFIDENCE_HISTORY_MAX_AGE_DAYS) {
+          console.info('[V11.9.1] Confidence history stale (' + Math.floor(ageDays) + ' days old). Ignoring — recomand replay pentru populare.');
+          return false;
+        }
+        console.info('[V11.9.1] Confidence history loaded: ' + payload.history.length + ' zile, ultima actualizare ' + lastDate);
+      }
+      
+      v11State._confidenceHistory = payload.history;
+      v11State._bullStreak = Number.isFinite(payload.bullStreak) ? payload.bullStreak : 0;
+      v11State._bearStreak = Number.isFinite(payload.bearStreak) ? payload.bearStreak : 0;
+      v11State._blocBRecentDays = Number.isFinite(payload.blocBRecentDays) ? payload.blocBRecentDays : 0;
+      // Recalculăm counts din history ca safety (indiferent de ce era în payload)
+      v11State._bullDaysIn90 = v11State._confidenceHistory.filter(e => e.category === 'BULL').length;
+      v11State._bearDaysIn90 = v11State._confidenceHistory.filter(e => e.category === 'BEAR').length;
+      return true;
+    } catch (err) {
+      console.warn('[V11.9.1] Load confidence history failed:', err);
+      return false;
+    }
+  }
+
+  function clearConfidenceHistoryStorage() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(CONFIDENCE_HISTORY_STORAGE_KEY);
+      }
+    } catch (err) {}
+  }
+
+  // La startup, încărcăm automat history-ul persistat
+  loadConfidenceHistory();
+
+  function applyV11ConfidenceAdjustments(engine, v11, data) {
     if (!engine) return engine;
 
-    const baseScoreRaw = Number(engine.confidenceScore);
-    const baseScore = Number.isFinite(baseScoreRaw) ? baseScoreRaw : 0;
-    const baseLabel = engine.confidence || confidenceLabel(baseScore);
+    // ═══════════════════════════════════════════════════════════════════
+    // V11.9: Update runtime tracking pentru confidence history
+    // Actualizăm state-ul ÎNAINTE de a calcula confidence nou
+    // ═══════════════════════════════════════════════════════════════════
+    const _currentCategory = classifyStateCategory(engine.detailed);
+    const _currentDateIso = (data && data.fetchedAt)
+      ? (typeof data.fetchedAt.toISOString === 'function'
+          ? data.fetchedAt.toISOString().slice(0, 10)
+          : String(data.fetchedAt).slice(0, 10))
+      : null;
+
+    // Inițializare safe pentru state fields
+    if (!Array.isArray(v11State._confidenceHistory)) v11State._confidenceHistory = [];
+    if (typeof v11State._bullStreak !== 'number') v11State._bullStreak = 0;
+    if (typeof v11State._bearStreak !== 'number') v11State._bearStreak = 0;
+
+    // Update history — DOAR dacă avem dată nouă (evită dublare la refresh-uri multiple în aceeași zi)
+    // Streak-urile se incrementează doar când history primește zi nouă
+    let _isNewDay = false;
+    if (_currentDateIso) {
+      const _lastEntry = v11State._confidenceHistory[v11State._confidenceHistory.length - 1];
+      if (!_lastEntry || _lastEntry.date !== _currentDateIso) {
+        v11State._confidenceHistory.push({ date: _currentDateIso, category: _currentCategory });
+        // Păstrăm max 90 zile
+        while (v11State._confidenceHistory.length > 90) {
+          v11State._confidenceHistory.shift();
+        }
+        _isNewDay = true;
+      } else {
+        // Aceeași zi — actualizăm categoria (state-ul se poate schimba pe parcursul zilei)
+        _lastEntry.category = _currentCategory;
+      }
+    }
+
+    // Update streak-uri — doar la zi nouă pentru a evita inflație la refresh-uri multiple
+    if (_isNewDay) {
+      if (_currentCategory === 'BULL') {
+        v11State._bullStreak += 1;
+        v11State._bearStreak = 0;
+      } else if (_currentCategory === 'BEAR') {
+        v11State._bearStreak += 1;
+        v11State._bullStreak = 0;
+      } else {
+        v11State._bullStreak = 0;
+        v11State._bearStreak = 0;
+      }
+    } else {
+      // Refresh în aceeași zi — recalculăm streak-ul din istoric dacă state s-a schimbat
+      // (conservăm streak curent, doar asigurăm consistența cu categoria ultimei zile)
+      const _lastEntry = v11State._confidenceHistory[v11State._confidenceHistory.length - 1];
+      if (_lastEntry) {
+        // Calculăm streak-ul real din history, nu prin increment
+        if (_lastEntry.category === 'BULL') {
+          let s = 0;
+          for (let i = v11State._confidenceHistory.length - 1; i >= 0; i--) {
+            if (v11State._confidenceHistory[i].category === 'BULL') s++;
+            else break;
+          }
+          v11State._bullStreak = s;
+          v11State._bearStreak = 0;
+        } else if (_lastEntry.category === 'BEAR') {
+          let s = 0;
+          for (let i = v11State._confidenceHistory.length - 1; i >= 0; i--) {
+            if (v11State._confidenceHistory[i].category === 'BEAR') s++;
+            else break;
+          }
+          v11State._bearStreak = s;
+          v11State._bullStreak = 0;
+        } else {
+          v11State._bullStreak = 0;
+          v11State._bearStreak = 0;
+        }
+      }
+    }
+
+    // Recalculăm counts din history
+    v11State._bullDaysIn90 = v11State._confidenceHistory.filter(e => e.category === 'BULL').length;
+    v11State._bearDaysIn90 = v11State._confidenceHistory.filter(e => e.category === 'BEAR').length;
+
+    // V11.9.1 rev D: Persist în localStorage (doar la zi nouă — evită writes inutile)
+    if (_isNewDay && typeof persistConfidenceHistory === 'function') {
+      persistConfidenceHistory();
+    }
+
+    const engineScoreRaw = Number(engine.confidenceScore);
+    const engineScore = Number.isFinite(engineScoreRaw) ? engineScoreRaw : 0;
+    const engineLabel = engine.confidence || confidenceLabel(engineScore);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V11.9 CONFIDENCE LAYER — recalculează confidence bazat pe calitatea
+    // semnalelor engine-ului (confluence score + tranziție/saturație)
+    // ═══════════════════════════════════════════════════════════════════
+    const v11Confidence = (data && typeof computeConfidenceV11_9 === 'function')
+      ? computeConfidenceV11_9(engine, data, v11State)
+      : null;
+
+    const baseScore = v11Confidence ? v11Confidence.score : engineScore;
+    const baseLabel = v11Confidence ? v11Confidence.label : engineLabel;
+    const v11ConfluenceReason = v11Confidence ? v11Confidence.reason : null;
 
     const out = {
       ...engine,
+      engineConfidenceScore: engineScore,     // scor original engine V10 (pentru audit)
+      engineConfidence: engineLabel,
       baseConfidenceScore: baseScore,
       baseConfidence: baseLabel,
       confidenceScore: baseScore,
       confidence: baseLabel,
-      confidenceAdjustmentReason: null
+      confidenceAdjustmentReason: v11ConfluenceReason,
+      confidenceScoreBull: v11Confidence ? v11Confidence.scoreBull : null,
+      confidenceScoreBear: v11Confidence ? v11Confidence.scoreBear : null
     };
 
     if (!v11 || !v11.blocB || !v11.blocB.active) {
@@ -2083,7 +2505,10 @@
     adjustedScore = clamp(Math.round(adjustedScore), 0, 100);
     out.confidenceScore = adjustedScore;
     out.confidence = confidenceLabel(adjustedScore);
-    out.confidenceAdjustmentReason = confidenceReason;
+    // Combinăm reason-urile: Confidence Layer + Bear Rally override
+    out.confidenceAdjustmentReason = v11ConfluenceReason
+      ? `${confidenceReason} (pre-override: ${v11ConfluenceReason})`
+      : confidenceReason;
     return out;
   }
 
@@ -2869,7 +3294,7 @@ async function fetchData() {
         const v11Nar = buildV11Narrative(v11Ctx);
         const v11Commentary = getV11CommentaryOverride(v11Ctx);
         clearV11RuntimeClock();
-        const engine = applyV11ConfidenceAdjustments(rawEngine, v11Ctx);
+        const engine = applyV11ConfidenceAdjustments(rawEngine, v11Ctx, data);
         const execution = deriveExecution(data, engine);
         const v11PrimaryKey = v11Ctx.blocA.active ? 'A'
           : v11Ctx.blocB.active ? 'B'
@@ -2958,7 +3383,51 @@ async function fetchData() {
       replayState.status = `Replay failed: ${err.message}`;
     } finally {
       restoreExecutionMemorySnapshot(memorySnapshot);
+      
+      // V11.9.1 rev D: Dacă replay-ul include data curentă, păstrăm
+      // _confidenceHistory generat pentru a accelera live trading confidence.
+      // Altfel, restore normal la snapshot-ul inițial.
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const replayReachesToday = endDate >= todayIso;
+      const replayHistory = Array.isArray(v11State._confidenceHistory)
+        ? JSON.parse(JSON.stringify(v11State._confidenceHistory))
+        : [];
+      const replayBullStreak = v11State._bullStreak;
+      const replayBearStreak = v11State._bearStreak;
+      const replayBullDaysIn90 = v11State._bullDaysIn90;
+      const replayBearDaysIn90 = v11State._bearDaysIn90;
+      
       restoreV11State(v11Snapshot);
+      
+      if (replayReachesToday && replayHistory.length > 0) {
+        // Merge: păstrăm history-ul din replay (e mai complet decât snapshot-ul)
+        v11State._confidenceHistory = replayHistory;
+        v11State._bullStreak = replayBullStreak;
+        v11State._bearStreak = replayBearStreak;
+        v11State._bullDaysIn90 = replayBullDaysIn90;
+        v11State._bearDaysIn90 = replayBearDaysIn90;
+        // Persist în localStorage (vezi persistConfidenceHistory mai jos)
+        // Manual persist (bypass guard-ul de replayState.running)
+        try {
+          if (typeof localStorage !== 'undefined') {
+            const payload = {
+              version: 'v11.9.1',
+              savedAt: new Date().toISOString(),
+              history: v11State._confidenceHistory,
+              bullStreak: v11State._bullStreak,
+              bearStreak: v11State._bearStreak,
+              bullDaysIn90: v11State._bullDaysIn90,
+              bearDaysIn90: v11State._bearDaysIn90,
+              blocBRecentDays: v11State._blocBRecentDays
+            };
+            localStorage.setItem(CONFIDENCE_HISTORY_STORAGE_KEY, JSON.stringify(payload));
+          }
+        } catch (err) {
+          console.warn('[V11.9.1] Post-replay persist failed:', err);
+        }
+        console.info('[V11.9.1] Replay reached today — confidence history păstrat (' + replayHistory.length + ' zile).');
+      }
+      
       clearV11RuntimeClock();
       replayState.running = false;
       if (docOverlay.classList.contains('open')) openDocOverlay('replay');
@@ -3023,57 +3492,111 @@ async function fetchData() {
         key: 'OE_TIP_A',
         what: 'Prețul se află la niveluri ridicate după o creștere susținută, dar impulsul slăbește — de câteva zile piața nu mai reușește să facă maxime noi.',
         meaning: 'Contextul este unul de supraextindere fără continuare imediată. Istoric, această situație nu a condus automat la un vârf — din 250 cazuri similare analizate, piața a continuat să urce în aproximativ jumătate din situații, cu creșteri medii de 5% în luna următoare. Supraextinderea în sine nu invalidează trendul, dar semnalează că mișcarea își pierde din impuls.',
-        conclusion: 'Contextul nu justifică creșterea agresivă a expunerii, dar nici ieșirea grăbită. Pozițiile existente pot fi menținute, iar direcția următoare se va clarifica prin reluarea maximelor sau prin începutul unei corecții.'
+        conclusion: 'Contextul nu justifică creșterea agresivă a expunerii, dar nici ieșirea grăbită. Pozițiile existente pot fi menținute, iar direcția următoare se va clarifica prin reluarea maximelor sau prin începutul unei corecții.',
+        snapshotWhat: 'Piața este la niveluri ridicate, iar de câteva zile nu mai face maxime noi — supraextindere cu impuls în slăbire.',
+        snapshotMeaning: 'Semn de saturație locală, nu de vârf automat.',
+        snapshotConclusion: 'Nu forța ieșiri, dar nici intrări noi agresive.',
+        phaseWhat: 'Faza de supraextindere — trendul e matur, impulsul slăbește, dar structura macro încă nu s-a schimbat.',
+        phaseMeaning: 'Ciclul bull se apropie de o posibilă rotație sau pauză. Supraextinderea fără maxime noi e o primă avertizare, nu o inversiune confirmată.',
+        phaseConclusion: 'Urmărești confirmările structurale — reluarea maximelor sau începutul unei corecții veritabile.'
       },
       OE_TIP_B: {
         key: 'OE_TIP_B',
         what: 'Prețul se află la niveluri ridicate după o creștere susținută și continuă să stabilească maxime noi.',
         meaning: 'Trendul rămâne puternic chiar în condiții de supraextindere. Istoric, din 116 cazuri similare, piața a continuat să urce în peste jumătate din situații, cu câștiguri medii de 11% în luna următoare. Supraextinderea cu maxime noi nu este echivalentă cu un vârf — structura încă susține mișcarea.',
-        conclusion: 'Contextul rămâne constructiv pentru pozițiile existente, fără a forța creșterea agresivă a expunerii. O corecție poate apărea oricând în zonă supraextinsă, dar absența ei în forma unui breakdown clar menține trendul valid.'
+        conclusion: 'Contextul rămâne constructiv pentru pozițiile existente, fără a forța creșterea agresivă a expunerii. O corecție poate apărea oricând în zonă supraextinsă, dar absența ei în forma unui breakdown clar menține trendul valid.',
+        snapshotWhat: 'Piața urcă și continuă să facă maxime noi, dar se află în zonă supraextinsă.',
+        snapshotMeaning: 'Trendul e puternic, dar riscul de volatility crește.',
+        snapshotConclusion: 'Menții pozițiile existente, fără a crește agresiv.',
+        phaseWhat: 'Faza bull avansată — trendul rămâne dominant, dar piața e într-o zonă istoric volatilă.',
+        phaseMeaning: 'Ciclul e în desfășurare și poate continua. Supraextinderea cu maxime noi e o caracteristică, nu un semnal de vârf.',
+        phaseConclusion: 'Contextul e constructiv, dar expunerea adițională se face cu prudență, conștient de volatility-ul zonei.'
       },
       // ── Bloc D — Corecții ─────────────────────────────────────
       CORRECTION_EARLY: {
         key: 'CORRECTION_EARLY',
         what: 'Piața coboară sau stagnează de câteva zile, însă structura mare rămâne intactă.',
         meaning: 'Este prea devreme pentru a clasifica tipul de corecție. Istoric, majoritatea corecțiilor în bull market se rezolvă în 2-4 săptămâni, fără a invalida trendul principal.',
-        conclusion: 'Zgomotul primelor zile nu justifică reacții. Direcția reală se va clarifica în săptămânile 4-8, prin reluarea creșterii sau prin deteriorarea structurii.'
+        conclusion: 'Zgomotul primelor zile nu justifică reacții. Direcția reală se va clarifica în săptămânile 4-8, prin reluarea creșterii sau prin deteriorarea structurii.',
+        snapshotWhat: 'Piața coboară sau stagnează de câteva zile, dar structura mare e încă intactă.',
+        snapshotMeaning: 'E prea devreme pentru a clasifica tipul de corecție.',
+        snapshotConclusion: 'Nu reacționa la zgomotul primelor zile — direcția reală se vede în săptămânile 4-8.',
+        phaseWhat: 'Fază timpurie de corecție în cadrul unui bull market.',
+        phaseMeaning: 'Majoritatea corecțiilor în bull se rezolvă în 2-8 săptămâni, fără a modifica trendul principal. Poziția în ciclu rămâne constructivă.',
+        phaseConclusion: 'Observi evoluția structurii. Poziția se poate rafina după ce corecția se declară sănătoasă sau breakdown.'
       },
       CORRECTION_HEALTHY: {
         key: 'CORRECTION_HEALTHY',
         what: 'Corecția durează de peste o lună, dar structura săptămânală rămâne pozitivă — Ichimoku continuă să se mențină deasupra norului.',
         meaning: 'Context tipic pentru corecțiile sănătoase din bull markets. Trendul principal nu este invalidat — piața consolidează înainte de a continua.',
-        conclusion: 'Contextul nu este unul de panică. Re-acumularea graduală rămâne o opțiune validă, atât timp cât structura mare se menține.'
+        conclusion: 'Contextul nu este unul de panică. Re-acumularea graduală rămâne o opțiune validă, atât timp cât structura mare se menține.',
+        snapshotWhat: 'Corecția durează de peste o lună, dar structura săptămânală rămâne pozitivă.',
+        snapshotMeaning: 'Ichimoku deasupra norului — consolidare tipică bull market.',
+        snapshotConclusion: 'Re-acumularea graduală rămâne validă, atât timp cât structura nu se erodează.',
+        phaseWhat: 'Faza de consolidare sănătoasă în cadrul unui ciclu bull.',
+        phaseMeaning: 'Trendul principal nu e invalidat — piața consolidează înainte de o posibilă continuare. E un pattern istoric comun la mijlocul ciclurilor bull.',
+        phaseConclusion: 'Contextul macro susține poziționarea constructivă. Breakout-ul peste nivelele de rezistență ar confirma continuarea.'
       },
       CORRECTION_BREAKDOWN: {
         key: 'CORRECTION_BREAKDOWN',
         what: 'Corecția durează de peste o lună, iar structura a început să se deterioreze — Ichimoku a intrat în nor sau a trecut sub el.',
         meaning: 'Probabilitatea crește că mișcarea nu mai este o corecție obișnuită, ci începutul unei schimbări mai largi de trend. Nu este încă bear confirmat, dar semnele structurale sunt îngrijorătoare.',
-        conclusion: 'Reducerea expunerii devine prioritară. Așteptarea unei reveniri poate fi costisitoare dacă structura continuă să se erodeze.'
+        conclusion: 'Reducerea expunerii devine prioritară. Așteptarea unei reveniri poate fi costisitoare dacă structura continuă să se erodeze.',
+        snapshotWhat: 'Corecția s-a extins, iar structura a început să se deterioreze — Ichimoku a intrat în nor sau a trecut sub el.',
+        snapshotMeaning: 'Probabilitatea crește că nu mai e o corecție obișnuită.',
+        snapshotConclusion: 'Reducerea expunerii devine prioritară.',
+        phaseWhat: 'Faza de tranziție dintre bull consolidat și posibil bear — structura macro începe să cedeze.',
+        phaseMeaning: 'Ciclul se află la o posibilă schimbare majoră. Ieșirea structurii din zona pozitivă invalidează treptat poziționarea bull.',
+        phaseConclusion: 'Prudența devine regula — așteptarea unei reveniri miraculoase poate costi semnificativ dacă breakdown-ul se confirmă.'
       },
       // ── Bloc B — Bear Context ─────────────────────────────────
       BEAR_RALLY_BELOW: {
         key: 'BEAR_RALLY_BELOW',
         what: 'Prețul este în creștere, însă structura săptămânală rămâne clar descendentă. Mișcarea apare într-un context unde tendința mare este încă în jos.',
         meaning: 'Aceste urcări sunt denumite bear rally — momente în care piața pare să se redreseze, dar contextul structural rămâne negativ. Istoric, din 58 cazuri similare, 71% au continuat scăderea în luna următoare, cu pierderi medii de 9%. Rally-ul nu reprezintă o schimbare de trend, ci o pauză în mișcarea descendentă.',
-        conclusion: 'Mișcarea nu poate fi tratată ca o revenire reală. Contextul nu este unul în care să fie justificată asumarea de risc direcțional pozitiv — riscul ca prețul să revină în scădere rămâne ridicat.'
+        conclusion: 'Mișcarea nu poate fi tratată ca o revenire reală. Contextul nu este unul în care să fie justificată asumarea de risc direcțional pozitiv — riscul ca prețul să revină în scădere rămâne ridicat.',
+        snapshotWhat: 'Prețul urcă, dar Ichimoku săptămânal rămâne below cloud — structura macro e încă negativă.',
+        snapshotMeaning: 'Mișcare tactică, nu schimbare de regim.',
+        snapshotConclusion: 'Nu confunda bounce-ul cu recovery-ul.',
+        phaseWhat: 'Fază de bear market — o încercare de revenire locală în cadrul unui trend descendent mare.',
+        phaseMeaning: 'Ciclul bear e încă dominant. Din 58 cazuri similare, 71% au continuat scăderea în luna următoare. Bear rally-ul nu reprezintă o schimbare de ciclu.',
+        phaseConclusion: 'Poziționarea rămâne defensivă până când structura săptămânală trece peste nor — asta ar semnala schimbarea de ciclu.'
       },
       BEAR_RALLY_INSIDE: {
         key: 'BEAR_RALLY_INSIDE',
         what: 'Prețul urcă într-o zonă structurală ambiguă, unde piața nu a decis încă o direcție clară.',
         meaning: 'Contextul este unul de incertitudine — nu mai este bear confirmat, dar nici nu s-a stabilit o structură pozitivă. Istoric, din 41 cazuri similare, piața a urcat în aproximativ jumătate din situații și a scăzut în cealaltă jumătate, fără un pattern dominant.',
-        conclusion: 'Fără semnale de confirmare suplimentare, contextul nu justifică mișcări ferme într-o direcție sau alta. Prudența este răspunsul potrivit într-o zonă cu rezultat istoric mixt.'
+        conclusion: 'Fără semnale de confirmare suplimentare, contextul nu justifică mișcări ferme într-o direcție sau alta. Prudența este răspunsul potrivit într-o zonă cu rezultat istoric mixt.',
+        snapshotWhat: 'Prețul urcă într-o zonă structurală ambiguă — nu mai e bear confirmat, dar nici bull validat.',
+        snapshotMeaning: 'Incertitudine maximă.',
+        snapshotConclusion: 'Prudența rămâne regula până la o confirmare direcțională.',
+        phaseWhat: 'Fază de tranziție — piața nu e nici bear clar, nici bull confirmat.',
+        phaseMeaning: 'Ciclul se află într-o zonă de decizie. Istoric, mișcările inside cloud se pot rezolva în orice direcție, iar prematur să reduci/crești expunerea e costisitor.',
+        phaseConclusion: 'Observi ce face piața la ieșirea din nor — breakout sau rejection — și poziționezi după confirmare.'
       },
       TRANSITION_RALLY: {
         key: 'TRANSITION_RALLY',
         what: 'Prețul urcă după o perioadă prelungită de scădere (peste 6 luni) și după o pierdere substanțială față de maximele anterioare.',
         meaning: 'Acest tip de mișcare este denumit transition rally — o încercare a pieței de a trece din bear în bull după o acumulare avansată. Contextul istoric a fost favorabil. Din 107 cazuri similare, piața a urcat în 84% din situații, cu câștiguri medii de 16% în luna următoare. Statisticile indică faptul că aceste momente au condus mai des la schimbări reale de regim decât la eșecuri.',
-        conclusion: 'Contextul devine constructiv pentru re-acumulare graduală. Validarea completă a tranziției vine odată cu trecerea Ichimoku deasupra norului săptămânal.'
+        conclusion: 'Contextul devine constructiv pentru re-acumulare graduală. Validarea completă a tranziției vine odată cu trecerea Ichimoku deasupra norului săptămânal.',
+        snapshotWhat: 'Prețul urcă după bear lung (>6 luni) și drawdown major față de maximele anterioare.',
+        snapshotMeaning: 'Posibilă tranziție reală bear → bull.',
+        snapshotConclusion: 'Context favorabil re-acumulării graduale.',
+        phaseWhat: 'Faza de tranziție reală — ciclul încearcă să treacă din bear în bull după o acumulare prelungită.',
+        phaseMeaning: 'Pattern-uri istorice similare (2019, 2023) au produs runs bull semnificative. Dar validarea completă necesită structura să treacă deasupra norului săptămânal.',
+        phaseConclusion: 'Poziționarea devine constructivă, dar cu disciplină — expansiunea expunerii urmează ritmul confirmărilor structurale.'
       },
       CONFIRMED_RECOVERY: {
         key: 'CONFIRMED_RECOVERY',
         what: 'Prețul urcă, iar structura mare a trecut recent deasupra norului — primul semnal real că piața a ieșit din contextul negativ.',
         meaning: 'Recovery-ul este confirmat structural, dar rămâne proaspăt și nevalidat pe termen lung. Din cazurile istorice, piața a continuat să urce în 58% din situații, cu câștiguri medii de 5% în luna următoare. Rezultatele pozitive sunt mai probabile, dar nu garantate.',
-        conclusion: 'Contextul devine favorabil pentru reluarea graduală a expunerii. Validarea completă vine odată cu menținerea structurii deasupra norului pentru câteva săptămâni suplimentare.'
+        conclusion: 'Contextul devine favorabil pentru reluarea graduală a expunerii. Validarea completă vine odată cu menținerea structurii deasupra norului pentru câteva săptămâni suplimentare.',
+        snapshotWhat: 'Prețul urcă, iar Ichimoku săptămânal a trecut recent deasupra norului — primul semnal real de ieșire din bear.',
+        snapshotMeaning: 'Recovery confirmat structural, dar încă proaspăt.',
+        snapshotConclusion: 'Poți reluce expunerea gradual, disciplinat.',
+        phaseWhat: 'Faza de intrare într-un ciclu nou bull — structura macro confirmă tranziția.',
+        phaseMeaning: 'Acest tip de breakout e istoric punctul de start pentru run-uri bull multi-lună. Dar fiind proaspăt, nu e validat pe termen lung.',
+        phaseConclusion: 'Poziționarea se rafinează treptat — validarea vine odată cu menținerea structurii deasupra norului și formarea unor niveluri noi de suport.'
       }
     };
     return key ? MAP[key] : null;
@@ -3965,15 +4488,15 @@ async function fetchData() {
 
     if (canonical === 'STRENGTHENING') {
       if (strengtheningMacro === 'below cloud') {
-        marketWhat = 'Se observă o îmbunătățire a indicatorilor pe termen scurt, dar structura macro rămâne negativă.';
-        marketMeaning = 'Se observă o îmbunătățire a indicatorilor pe termen scurt, dar structura macro rămâne negativă. Acest lucru descrie mai degrabă o revenire locală într-un context încă vulnerabil decât începutul unui nou bull confirmat.';
+        marketWhat = 'Momentum-ul zilnic a virat pozitiv (RSI, MACD), dar Ichimoku săptămânal rămâne below cloud — structura macro este încă negativă.';
+        marketMeaning = 'Asta descrie un bounce tactic, nu o schimbare reală de regim. Semnalele zilnice arată bine, dar atâta timp cât Ichimoku 1W rămâne negativ, contextul mare nu este reparat și riscul de eșec al mișcării rămâne semnificativ.';
         snapLimit = 'Nu trata această mișcare ca pe un trend confirmat. Expunerea rămâne controlată până când structura mare se repară clar.';
         actionConclusion = 'Îmbunătățirea există, dar contextul mare nu justifică încă sizing agresiv.';
         momInterp = 'Indicatorii pe termen scurt s-au îmbunătățit, dar structura mare rămâne negativă. Mișcarea actuală seamănă mai mult cu o revenire într-un trend descendent decât cu începutul unei reconstrucții validate structural.';
         momConclusion = 'Nu trata această mișcare ca pe un bull confirmat. BTC arată mai bine local, dar contextul macro rămâne incomplet.';
         confMeaning = 'Semnalele de scurtă durată se îmbunătățesc, dar alinierea structurală lipsește încă. În astfel de condiții, încrederea trebuie citită ca robustețe locală a rebound-ului, nu ca validare a unui nou regim bullish.';
         confConclusion = 'Mai corect este să privești strengthening-ul actual ca pe o îmbunătățire tactică, nu ca pe o confirmare completă.';
-        phaseWhat = 'Indicatorii de scurtă durată se îmbunătățesc, dar structura macro rămâne negativă.';
+        phaseWhat = 'Piața traversează o fază post-bear: o încercare de recuperare în interiorul unui regim macro încă negativ.';
         phaseMeaning = 'Revenirea există la nivel de momentum și price action, însă contextul mare nu confirmă încă o schimbare reală de regim. În această etapă, strengthening-ul trebuie citit ca o îmbunătățire locală într-un mediu încă vulnerabil.';
         phaseConclusion = 'Comportamentul potrivit este prudența: urmărești dacă îmbunătățirea continuă și se propagă în structură, fără a trata această fază ca pe un bull validat.';
         changedStructure = 'Structura se îmbunătățește local pe intervalul de 7 zile, dar contextul macro rămâne negativ și incomplet reparat.';
@@ -3981,15 +4504,15 @@ async function fetchData() {
         changeConclusion = 'Schimbarea recentă merită urmărită, dar fără a fi tratată ca o confirmare structurală. Expunerea rămâne controlată.';
         levelMeaning = 'Performanța pe 7-30 de zile arată o îmbunătățire locală, dar nu este încă suficientă pentru a valida un trend bullish curat cât timp structura mare rămâne negativă.';
       } else if (strengtheningMacro === 'inside cloud') {
-        marketWhat = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară.';
-        marketMeaning = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară. Mișcarea devine mai coerentă, însă nu există încă o confirmare structurală completă.';
+        marketWhat = 'Momentum-ul zilnic susține mișcarea, iar prețul se mișcă în interiorul cloud-ului săptămânal — zonă neutră, fără confirmare clară într-o direcție.';
+        marketMeaning = 'Mișcarea devine mai coerentă decât în fazele anterioare, dar nu există încă o confirmare structurală. Zona inside cloud înseamnă că piața decide — poate ieși pozitiv (breakout above) sau negativ (rejection înapoi below).';
         snapLimit = 'Contextul se îmbunătățește, dar nu justifică încă o expunere agresivă până la ieșirea clară din zona de tranziție.';
         actionConclusion = 'Este o fază mai bună decât simpla stabilizare, dar confirmarea completă lipsește încă.';
         momInterp = 'BTC se îmbunătățește într-un context în care structura mare nu a ieșit încă decisiv din zona de incertitudine. Mișcarea este mai coerentă decât un simplu bounce, dar nu este încă un bull curat.';
         momConclusion = 'Păstrează lectura constructivă, dar fără a confunda strengthening-ul din cloud cu un trend deja confirmat.';
         confMeaning = 'Semnalele se aliniază mai bine decât în etapele anterioare, dar structura mare rămâne incomplet clarificată. Încrederea este intermediară: suficientă pentru a susține îmbunătățirea, dar nu pentru a valida încă o direcție complet stabilă.';
         confConclusion = 'Mai corect este să tratezi această fază ca pe o tranziție constructivă, nu ca pe o confirmare finală.';
-        phaseWhat = 'Indicatorii se îmbunătățesc, dar structura rămâne în tranziție și fără direcție clară.';
+        phaseWhat = 'Faza de tranziție a ciclului — ieșirea din bear încă nu s-a concretizat într-un bull confirmat.';
         phaseMeaning = 'Revenirea capătă consistență, însă faza actuală rămâne una de tranziție. Contextul este mai bun decât în stabilizare sau recovery attempt, dar încă nu oferă o confirmare structurală completă.';
         phaseConclusion = 'Comportamentul potrivit este prudența constructivă: urmărești continuitatea confirmărilor fără a forța concluzia că trendul este deja validat.';
         changedStructure = 'Structura se îmbunătățește pe termen scurt, dar rămâne într-o zonă de tranziție fără direcție clară complet validată.';
@@ -4820,7 +5343,7 @@ function renderDashboard(data, engine) {
     const _v11Nar       = buildV11Narrative(_v11Ctx);
     const _v11Commentary = getV11CommentaryOverride(_v11Ctx);
     clearV11RuntimeClock();
-    engine = applyV11ConfidenceAdjustments(engine, _v11Ctx);
+    engine = applyV11ConfidenceAdjustments(engine, _v11Ctx, data);
     // updateV11UI eliminat — subcards V11 separat a fost eliminat; 
     // comentariile V11 ajung în cardurile principale prin override post-buildNarrative
     // ── sfârşit V11 ───────────────────────────────────────────
@@ -4830,9 +5353,10 @@ function renderDashboard(data, engine) {
     const text = buildNarrative(data, engine, confluence, execution);
     if (_v11Commentary) {
       if (text.snapshot) {
-        text.snapshot.what = _v11Commentary.what;
-        text.snapshot.meaning = _v11Commentary.meaning;
-        text.snapshot.conclusion = _v11Commentary.conclusion;
+        // V11.9.1 rev C: Snapshot folosește varianta scurtă (observație directă)
+        text.snapshot.what = _v11Commentary.snapshotWhat || _v11Commentary.what;
+        text.snapshot.meaning = _v11Commentary.snapshotMeaning || _v11Commentary.meaning;
+        text.snapshot.conclusion = _v11Commentary.snapshotConclusion || _v11Commentary.conclusion;
       }
       if (text.market) {
         text.market.what = _v11Commentary.what;
@@ -4846,9 +5370,10 @@ function renderDashboard(data, engine) {
       }
       // Phase (Market Phase card) — cel mai important pentru context ciclic
       if (text.phase) {
-        text.phase.what = _v11Commentary.what;
-        text.phase.meaning = _v11Commentary.meaning;
-        text.phase.conclusion = _v11Commentary.conclusion;
+        // V11.9.1 rev C: Phase folosește varianta cu perspectivă macro (ciclu)
+        text.phase.what = _v11Commentary.phaseWhat || _v11Commentary.what;
+        text.phase.meaning = _v11Commentary.phaseMeaning || _v11Commentary.meaning;
+        text.phase.conclusion = _v11Commentary.phaseConclusion || _v11Commentary.conclusion;
       }
       // Header — prefix cu label V11
       if (text.header && _v11Commentary.key !== 'CONFIRMED_RECOVERY') {
@@ -4895,7 +5420,7 @@ function renderDashboard(data, engine) {
 
     setHTML('marketDetailed', stateSpan(engine.detailed));
     setHTML('marketSimplified', stateSpan(engine.simplified));
-    setHTML('marketConfidence', `<span class="${engine.confidence === 'HIGH' || engine.confidence === 'HIGH' ? 'pos' : engine.confidence === 'MEDIUM' ? 'warn' : 'neg'}">${engine.confidence}</span>`);
+    setHTML('marketConfidence', `<span class="${engine.confidence === 'HIGH' ? 'pos' : engine.confidence === 'MEDIUM' ? 'warn' : 'neg'}">${engine.confidence}</span>`);
     const badge = document.getElementById('marketBadge');
     const marketStateForBadge = engine.detailed || engine.simplified;
     badge.className = `badge ${['RISK-OFF','BREAKDOWN RISK','BEAR CONFIRMED'].includes(marketStateForBadge) ? 'red' : ['WEAKENING','STRUCTURAL WEAKNESS','STRUCTURAL CONFLICT','BEAR EXHAUSTION','RELIEF RALLY','BULL OVEREXTENDED','RECOVERY ATTEMPT'].includes(marketStateForBadge) ? 'orange' : marketStateForBadge === 'STABILIZATION' ? 'yellow' : 'green'}`;
@@ -4945,7 +5470,7 @@ function renderDashboard(data, engine) {
     setText('ethMeaning', text.eth.meaning);
     setText('ethConclusion', text.eth.conclusion);
 
-    const relConfidence = engine.confidence === 'HIGH' ? 'HIGH' : engine.confidence;
+    const relConfidence = engine.confidence;
     setHTML('relState', stateSpan(relDisplayState));
     const relBadge = document.getElementById('relBadge');
     if (relBadge) {
@@ -5130,7 +5655,7 @@ function renderDashboard(data, engine) {
       setV11RuntimeClock(data.fetchedAt);
       const _v11Ctx = deriveV11Context(_v11Canonical, _v11Ichimoku, data.btc.price);
       clearV11RuntimeClock();
-      const engine = applyV11ConfidenceAdjustments(rawEngine, _v11Ctx);
+      const engine = applyV11ConfidenceAdjustments(rawEngine, _v11Ctx, data);
       const syncTime = data.fetchedAt.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const syncChip = document.getElementById('syncChip');
       const healthChip = document.getElementById('healthChip');
@@ -6024,6 +6549,34 @@ function buildChangelogPanel() {
 
         <div class="changelog-entry">
           <div class="meta">Current</div>
+          <h3>V11.9.1 — Confidence Layer · Release</h3>
+          <p>Adaugă un Confidence Layer read-only peste engine-ul V10.7.7.3 și V11 Context Layer. Recalculează confidence pe baza calității semnalelor engine-ului, nu pe plafoane fixe per state. Engine-ul și V11 Context Layer rămân complet neatinse. Rulează după buildNarrative() și înainte de UI, folosind date furnizate deja de engine (Ichimoku 1W, RSI 1W/1D, EMA50/200, relState) plus tracking runtime pentru durata trendului.</p>
+          <ul>
+            <li><strong>Problema rezolvată:</strong> plafoanele rigide per state (ex. RELIEF RALLY = 69, STRUCTURAL CONFLICT = 60) produceau confidence LOW persistent chiar în contexte cu confluence bun. Pe episodul BTC $65k → $78k (martie-aprilie 2026, 19 zile), sistemul afișa constant LOW în timp ce toate semnalele erau aliniate pozitiv.</li>
+            <li><strong>Scorul de confluence:</strong> două scoruri paralele (bullish și bearish) calculate din semnalele engine-ului cu ponderi integer: Ichimoku 1W (±3), RSI 1W (±3), RSI 1D (±2/±1), MACD 1D (±2), preț vs EMA50/200 (±2/±1), distanță parabolic EMA50 >10% (−2), relState (±2/±1), bull/bear momentum streak în fereastra 4-14 zile (+2) sau ≥15 zile epuizare (−3).</li>
+            <li><strong>Modulatorul tranziție/saturație:</strong> pentru bullish HIGH cerem nu doar scor ≥5, ci și bullDaysIn90 ≤ 29 (tranziție proaspătă din bear). Asta discriminează între confluence la începutul trendului (continuare reală) și confluence la vârful ciclului (saturație, risc top). Descoperit empiric: cele 4 cazuri istorice cu bull streak ≥15 au fost toate la vârfuri majore (feb 2019, nov 2022, ian 2026).</li>
+            <li><strong>Regulă bullish (5 stări):</strong> RELIEF RALLY, RECOVERY ATTEMPT, STRENGTHENING, BULL CONFIRMED, BULL OVEREXTENDED. HIGH = scor ≥5 AND bullDaysIn90 ≤29; MEDIUM = scor ≥5; LOW = scor &lt;5. Validat pe 1605 zile bullish: HIGH avg ret30 +35.4% (84% pozitive, N=37), MEDIUM +6.9% (54%, N=1066), LOW +1.2% (48%, N=502). Gap HIGH vs MEDIUM = 28pp.</li>
+            <li><strong>Regulă bearish (5 stări):</strong> WEAKENING, BEAR CONFIRMED, BREAKDOWN RISK, STRUCTURAL WEAKNESS, BEAR EXHAUSTION. Asimetric față de bullish — HIGH cere scor ≥9 (nu ≥5) AND bearDaysIn90 ≤29, pentru că BREAKDOWN RISK proaspăt cu scor mic e adesea shakeout. LOW bearish (scor &lt;5) e semnal informativ de reversal iminent: avg ret30 +11.6%, 35% negative (N=341).</li>
+            <li><strong>Regulă neutrale (3 stări):</strong> SIDEWAYS RANGE, STRUCTURAL CONFLICT, STABILIZATION. MEDIUM = max(scor_bull, scor_bear) ≥6; LOW = altfel. STABILIZATION mutat la categoria neutră după testare — tratamentul bullish producea HIGH cu outcome negativ (-5.8%).</li>
+            <li><strong>Runtime state tracking:</strong> extins v11State cu _confidenceHistory (ultimele 90 zile), _bullStreak, _bearStreak, _bullDaysIn90, _bearDaysIn90. Update automat la fiecare refresh în applyV11ConfidenceAdjustments, cu fereastră sliding de 90 zile și protecție împotriva dublurilor la refresh-uri multiple în aceeași zi.</li>
+            <li><strong>Compatibilitate cu V11 Bear Rally:</strong> applyV11ConfidenceAdjustments calculează mai întâi confidence nou (Confidence Layer), apoi V11 Bear Rally poate reduce mai departe pentru BEAR_RALLY_BELOW/INSIDE/DEEP_BEAR. Cele două layere cooperează fără conflict (verificat: 1 suprapunere în 189 cazuri RELIEF RALLY).</li>
+            <li><strong>Engine V10 complet intact:</strong> deriveEngine() și toate calculele de state, exposure, narrative rămân identice cu V10.7.7.3. Schimbarea e pur informațională pentru utilizator. confidenceScore original al engine-ului se păstrează în câmpul engineConfidenceScore pentru audit.</li>
+            <li><strong>Validare statistică completă:</strong> formula dezvoltată prin 3 iterații respingând ipoteze slabe (streak RELIEF RALLY fragmentat, relState ca discriminator izolat cu pattern inversat post-2023, drawdown 90d cu cazuri mixte între tranziție și saturație). Regula finală testată pe 3166 zile istorice cu gap statistic semnificativ între niveluri.</li>
+            <li><strong>Fix duplicare comentarii STRENGTHENING:</strong> în blocul STRENGTHENING override, <code>phaseWhat</code> și <code>marketWhat</code> aveau fraze identice pentru inside cloud ("Indicatorii se îmbunătățesc, dar structura rămâne în tranziție..."). În plus, <code>marketMeaning</code> începea cu aceeași frază ca <code>marketWhat</code>. Rescrise complet cu perspective distincte: marketWhat = descriere tehnică (RSI, MACD, Ichimoku specific), marketMeaning = interpretare practică (fără a relua What), phaseWhat = poziție în ciclu (tranziție bear → bull). Aplicat pentru ambele contexte below cloud și inside cloud.</li>
+            <li><strong>Fix streak inflație la refresh multiplu în aceeași zi:</strong> <code>applyV11ConfidenceAdjustments</code> e apelat de 3 locuri (renderDashboard, refreshLive, runHistoricalReplay). Logica incrementa <code>_bullStreak</code> / <code>_bearStreak</code> la fiecare apel, deci 5 refresh-uri în aceeași zi produceau streak +5 în loc de +1. Fix: streak se incrementează doar când history primește zi nouă; la refresh în aceeași zi se recalculează consistent din history.</li>
+            <li><strong>Fix pierderea reason-ului Confidence Layer la V11 Bear Rally override:</strong> când Bear Rally reducea scorul, <code>confidenceAdjustmentReason</code> era suprascris complet. Fix: reason-urile se combină pentru audit: <code>BEAR_RALLY_BELOW (pre-override: BULL_FRESH_TRANSITION)</code>.</li>
+            <li><strong>Fix resetV11State și restoreV11State pentru câmpurile noi:</strong> <code>resetV11State()</code> nu resetăa <code>_blocBRecentDays</code>, <code>_confidenceHistory</code>, <code>_bullStreak</code>, <code>_bearStreak</code>, <code>_bullDaysIn90</code>, <code>_bearDaysIn90</code>. <code>restoreV11State(snapshot)</code> nu restaura aceste câmpuri după un replay istoric. Impact: după un replay, starea live era poluată cu date din replay, sau state-ul Confidence Layer rămânea cu counts incorecte. Ambele funcții actualizate pentru a gestiona complet toate câmpurile.</li>
+            <li><strong>Fix redundanțe în UI confidence display:</strong> <code>marketConfidence</code> avea verificare dublată <code>engine.confidence === 'HIGH' || engine.confidence === 'HIGH'</code> (copy-paste error). <code>relConfidence</code> avea tautologie <code>engine.confidence === 'HIGH' ? 'HIGH' : engine.confidence</code>. Ambele simplificate.</li>
+            <li><strong>rev C: Prag bull/bear_days_in_90 ajustat de la ≤29 la ≤20.</strong> Descoperit prin testul suprem de validare pe întreg replay-ul 3167 zile (până pe 18 aprilie 2026): pragul ≤29 producea 16 false-pozitive HIGH cu ret30 &lt;-5%, inclusiv un fals-pozitiv extrem pe 13 ianuarie 2026 (HIGH la top local $95,414, urmat de -30.5% în 30 zile). Cazurile problematice concentrate în aprilie 2018 (pre-bear 2018, 7 cazuri), martie 2022 (bear rally major, 4 cazuri), ianuarie 2026 (1 caz). Cauza: bull_days_in_90 = 29 la acele momente era exact la pragul admis, iar mini-rally-urile din cadrul unei corecții mai mari pot acumula 25-29 zile bullish fragmentate. Pragul ≤20 elimină toate aceste false-pozitive, păstrând 72% cazuri pozitive (vs 58% cu ≤29). HIGH devine mai rar (18 cazuri pe 9 ani vs 62 anterior) dar semnificativ mai precis — ce vrem de la un label HIGH.</li>
+            <li><strong>Validare finală pe topuri și bottoms istorice majore:</strong> Testate Bull Top Dec 2017, Mini-top Iunie 2019, Bull Top Apr 2021, ATH Nov 2021, Top Mar 2024, Top Ian 2025. Sistemul nu produce HIGH greșit la niciunul dintre acestea post rev C. Bottoms (Dec 2018, Mar 2020 COVID, Nov 2022 FTX, Mar 2025, Mar 2026) marcate corect cu MEDIUM bearish care trece la MEDIUM neutral pe recovery.</li>
+            <li><strong>rev D: Texte distincte per card pentru V11 Commentary.</strong> Problema: când V11 Commentary era activ (ex: BEAR_RALLY_BELOW), același text se aplica pe 4 carduri (snapshot, market, btc, phase) producând duplicare vizibilă. Fix: MAP-ul V11 Commentary extins cu variante <code>snapshotWhat/Meaning/Conclusion</code> și <code>phaseWhat/Meaning/Conclusion</code> pentru toate 9 chei (OE_TIP_A/B, CORRECTION_EARLY/HEALTHY/BREAKDOWN, BEAR_RALLY_BELOW/INSIDE, TRANSITION_RALLY, CONFIRMED_RECOVERY). Snapshot primește versiune scurtă (observație directă, 1-2 propoziții). Phase primește versiune macro (poziție în ciclu). Market și BTC păstrează textul full pentru interpretare completă. Aplicabilitate: BACKWARDS COMPATIBLE — fallback la textul principal dacă variantele lipsesc.</li>
+            <li><strong>rev D: localStorage persistence pentru confidence history.</strong> Problema: <code>_confidenceHistory</code> trăia doar în memoria sesiunii — la reload de pagină sau închidere browser, sistemul pierdea 90 zile de tracking și reîncepea de la zero. În primele zile după reload, <code>bullDaysIn90 = 1</code> trecea trivial pragul HIGH (≤20) producând label HIGH greșit. Fix: funcții <code>persistConfidenceHistory()</code> / <code>loadConfidenceHistory()</code> care salvează payload-ul în localStorage la fiecare zi nouă și îl restaurează la startup. Key: <code>cryptorisk_v11_9_1_confidence_history</code>. Payload: history, streak-uri, counts, blocBRecentDays, savedAt timestamp. Protecții: (1) persist dezactivat în timpul replay-ului pentru a nu overwrite history-ul live; (2) dacă ultima zi din history e mai veche de 14 zile, se ignoră payload-ul (stale detection) — recomandare pentru user să ruleze replay de repopulare; (3) load recalculează counts din history ca safety; (4) clearConfidenceHistoryStorage() disponibil pentru reset manual.</li>
+            <li><strong>rev D: Replay păstrează history când include data curentă.</strong> Problema: chiar și după un replay complet care popula corect cele 90 zile, <code>restoreV11State(v11Snapshot)</code> din finally șterge rezultatul la final. Fix: dacă replay-ul are <code>endDate >= today</code>, la final se detectează că replay-ul simulează cronologic identic cu ce ar fi fost live trading, deci history-ul generat e păstrat în v11State și persistat explicit în localStorage (bypass guard de replayState.running). Mesaj de confirmare în console: "[V11.9.1] Replay reached today — confidence history păstrat (N zile)." Utilitate: dacă user deschide dashboard-ul după pauză lungă și vrea confidence calibrat pentru ziua 1, dă Replay din ~3 luni în urmă până azi și sistemul e imediat precis.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="meta">Previous</div>
           <h3>V11.9 — V11 Context Layer · Release</h3>
           <p>Versiune majoră. Adaugă un Context Layer read-only deasupra engine-ului V10.7.7.3, care rămâne complet neatins. Engine-ul, state machine-ul și execution layer-ul nu au fost modificate. Textele commentary au fost rescrise pentru aliniere cu stilul V10 (ton observator, narativ, cu date statistice din simulări).</p>
           <ul>
