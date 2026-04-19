@@ -1171,7 +1171,106 @@
       .journal-detail-grid { grid-template-columns:1fr; }
     }
 
-</style>
+
+    /* V11.9.1 rev D: Snapshot chart (BTC + ETH 90 days) */
+    .snapshot-chart-wrap {
+      margin-top: 18px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.02);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .snapshot-chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .snapshot-chart-title {
+      color: var(--muted);
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .snapshot-chart-note {
+      color: rgba(255,255,255,.4);
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: 0;
+      margin-left: 4px;
+    }
+    .snapshot-chart-legend {
+      display: flex;
+      gap: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .legend-item span:last-child {
+      color: #e8edff;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+    .snapshot-chart {
+      position: relative;
+      width: 100%;
+      height: 200px;
+    }
+    .snapshot-chart svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .snapshot-chart-tooltip {
+      position: absolute;
+      background: rgba(15, 20, 40, 0.95);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #e8edff;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .15s ease;
+      z-index: 10;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    }
+    .snapshot-chart-tooltip.show { opacity: 1; }
+    .snapshot-chart-tooltip .tt-date {
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-size: 10px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .snapshot-chart-tooltip .tt-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+    .snapshot-chart-tooltip .tt-row .tt-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: rgba(255,255,255,.7);
+    }
+    </style>
 </head>
 <body>
 <div class="wrap">
@@ -1198,7 +1297,7 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V11.9.1 rev D</h1>
+<h1>CryptoRisk Dashboard — V11.9.1 rev E</h1>
 <div class="subtitle">Engine V11.9.1 · V10.7.7.3 engine (intact) · V11 Context Layer (Bloc A-E) · Confidence Layer (confluence scoring + transition/saturation discriminator) · commentary override · bear rally / transition detection · execution memory + journal</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
@@ -1249,6 +1348,17 @@
 <div class="label">Conclusion</div>
 <p id="snapshotConclusion">—</p>
 </div>
+</div>
+<div class="snapshot-chart-wrap">
+<div class="snapshot-chart-header">
+<div class="snapshot-chart-title">BTC / ETH — ultimele 90 zile <span class="snapshot-chart-note">(preț normalizat la 100)</span></div>
+<div class="snapshot-chart-legend">
+<span class="legend-item"><span class="legend-dot" style="background:#f7931a"></span>BTC <span id="chartBtcPrice">—</span></span>
+<span class="legend-item"><span class="legend-dot" style="background:#627eea"></span>ETH <span id="chartEthPrice">—</span></span>
+</div>
+</div>
+<div id="snapshotChart" class="snapshot-chart"></div>
+<div class="snapshot-chart-tooltip" id="snapshotChartTooltip"></div>
 </div>
 </div>
 </article>
@@ -1509,7 +1619,7 @@
 </div>
 </div>
 </div>
-<div class="bottom-docbar"><button class="action-btn" id="guideBottomBtn" type="button">Guide</button><button class="action-btn" id="changelogBottomBtn" type="button">Changelog</button><button class="action-btn" id="replayBottomBtn" type="button" onclick="openDocOverlay('replay')">Replay Full History</button></div><div class="footer-note">Demo simplificat: state engine + confidence engine + EMA50 ca filtru structural secundar. Nu reprezintă performanță live sau acuratețe garantată.</div>
+<div class="bottom-docbar"><button class="action-btn" id="guideBottomBtn" type="button">Guide</button><button class="action-btn" id="changelogBottomBtn" type="button">Changelog</button><button class="action-btn" id="replayBottomBtn" type="button" onclick="openDocOverlay('replay')">Replay Full History</button></div>
 </div>
 <script>
   const AUTO_SYNC_SECONDS = 300;
@@ -5332,6 +5442,206 @@ async function fetchData() {
       conclusion: ''  // Ce faci (acțiune directă)
     };
   }
+  // ═══════════════════════════════════════════════════════════════════
+  // V11.9.1 rev D: Snapshot chart — BTC + ETH normalized last 90 days
+  // Desenat ca SVG inline pentru performanță și control vizual
+  // ═══════════════════════════════════════════════════════════════════
+  function drawSnapshotChart(data) {
+    const container = document.getElementById('snapshotChart');
+    const tooltip = document.getElementById('snapshotChartTooltip');
+    const btcPriceEl = document.getElementById('chartBtcPrice');
+    const ethPriceEl = document.getElementById('chartEthPrice');
+    if (!container || !data || !data.btc || !data.eth) return;
+
+    const btcCloses = (data.btc.daily && data.btc.daily.closes) || [];
+    const ethCloses = (data.eth.daily && data.eth.daily.closes) || [];
+    let btcTimes = (data.btc.daily && data.btc.daily.times) || [];
+    // Fallback: dacă times nu e disponibil, construim din fetchedAt backward
+    if (!btcTimes.length && data.fetchedAt) {
+      const endMs = (data.fetchedAt instanceof Date ? data.fetchedAt : new Date(data.fetchedAt)).getTime();
+      btcTimes = btcCloses.map((_, i) => endMs - (btcCloses.length - 1 - i) * 86400000);
+    }
+
+    // Take last 90 days
+    const N = 90;
+    const btcLast = btcCloses.slice(-N);
+    const ethLast = ethCloses.slice(-N);
+    const timesLast = btcTimes.slice(-N);
+
+    if (btcLast.length < 2 || ethLast.length < 2) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px;">Insufficient data for chart</div>';
+      return;
+    }
+
+    const minLen = Math.min(btcLast.length, ethLast.length);
+    const btcData = btcLast.slice(-minLen);
+    const ethData = ethLast.slice(-minLen);
+    const timesData = timesLast.slice(-minLen);
+
+    // Normalize both to 100 at start
+    const btcBase = btcData[0] || 1;
+    const ethBase = ethData[0] || 1;
+    const btcNorm = btcData.map(p => (p / btcBase) * 100);
+    const ethNorm = ethData.map(p => (p / ethBase) * 100);
+
+    // Find min/max for y axis
+    const allValues = btcNorm.concat(ethNorm);
+    const yMin = Math.min(...allValues);
+    const yMax = Math.max(...allValues);
+    const yPadding = (yMax - yMin) * 0.1;
+    const yDomainMin = yMin - yPadding;
+    const yDomainMax = yMax + yPadding;
+
+    // Dimensions (viewBox for responsiveness)
+    const W = 800;
+    const H = 200;
+    const padL = 40;
+    const padR = 10;
+    const padT = 10;
+    const padB = 25;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const xScale = i => padL + (i / (minLen - 1)) * plotW;
+    const yScale = v => padT + plotH - ((v - yDomainMin) / (yDomainMax - yDomainMin)) * plotH;
+
+    // Build path strings
+    function buildPath(arr) {
+      return arr.map((v, i) => (i === 0 ? 'M' : 'L') + xScale(i).toFixed(1) + ',' + yScale(v).toFixed(1)).join(' ');
+    }
+    const btcPath = buildPath(btcNorm);
+    const ethPath = buildPath(ethNorm);
+
+    // Area below each line (for gradient fill)
+    const btcArea = btcPath + ' L' + xScale(minLen - 1).toFixed(1) + ',' + (padT + plotH) + ' L' + padL + ',' + (padT + plotH) + ' Z';
+    const ethArea = ethPath + ' L' + xScale(minLen - 1).toFixed(1) + ',' + (padT + plotH) + ' L' + padL + ',' + (padT + plotH) + ' Z';
+
+    // Y-axis gridlines (4 lines)
+    const yLines = [];
+    for (let i = 0; i <= 3; i++) {
+      const v = yDomainMin + (i / 3) * (yDomainMax - yDomainMin);
+      yLines.push({
+        y: yScale(v).toFixed(1),
+        label: v.toFixed(0)
+      });
+    }
+
+    // X-axis labels (few dates)
+    const xLabels = [];
+    const dateCount = 4;
+    for (let i = 0; i < dateCount; i++) {
+      const idx = Math.floor((i / (dateCount - 1)) * (minLen - 1));
+      const ms = timesData[idx];
+      if (ms) {
+        const d = new Date(ms);
+        const label = (d.getMonth() + 1).toString().padStart(2, '0') + '/' + d.getDate().toString().padStart(2, '0');
+        xLabels.push({
+          x: xScale(idx).toFixed(1),
+          label
+        });
+      }
+    }
+
+    // SVG markup
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="btcGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#f7931a" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#f7931a" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="ethGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#627eea" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="#627eea" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${yLines.map(l => `<line x1="${padL}" y1="${l.y}" x2="${W - padR}" y2="${l.y}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>`).join('')}
+        ${yLines.map(l => `<text x="${padL - 5}" y="${l.y}" dy="4" text-anchor="end" font-size="10" fill="rgba(255,255,255,0.35)">${l.label}</text>`).join('')}
+        ${xLabels.map(l => `<text x="${l.x}" y="${H - 8}" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.35)">${l.label}</text>`).join('')}
+        <path d="${btcArea}" fill="url(#btcGrad)"/>
+        <path d="${ethArea}" fill="url(#ethGrad)"/>
+        <path d="${ethPath}" fill="none" stroke="#627eea" stroke-width="1.5"/>
+        <path d="${btcPath}" fill="none" stroke="#f7931a" stroke-width="1.5"/>
+        <rect id="snapshotChartOverlay" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent"/>
+        <line id="snapshotChartCursor" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="2,2" opacity="0"/>
+        <circle id="snapshotChartBtcDot" cx="0" cy="0" r="4" fill="#f7931a" stroke="#0a0f1d" stroke-width="2" opacity="0"/>
+        <circle id="snapshotChartEthDot" cx="0" cy="0" r="4" fill="#627eea" stroke="#0a0f1d" stroke-width="2" opacity="0"/>
+      </svg>
+    `;
+
+    container.innerHTML = svg;
+
+    // Update prețuri afișate în legendă
+    const currentBtc = btcData[btcData.length - 1];
+    const currentEth = ethData[ethData.length - 1];
+    if (btcPriceEl) btcPriceEl.textContent = '$' + currentBtc.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (ethPriceEl) ethPriceEl.textContent = '$' + currentEth.toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+    // Hover interaction for tooltip
+    const svgEl = container.querySelector('svg');
+    const overlay = container.querySelector('#snapshotChartOverlay');
+    const cursor = container.querySelector('#snapshotChartCursor');
+    const btcDot = container.querySelector('#snapshotChartBtcDot');
+    const ethDot = container.querySelector('#snapshotChartEthDot');
+
+    if (overlay) {
+      overlay.addEventListener('mousemove', function(e) {
+        const rect = svgEl.getBoundingClientRect();
+        const scaleX = W / rect.width;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+        const xInPlot = mouseX - padL;
+        if (xInPlot < 0 || xInPlot > plotW) return;
+        const idx = Math.round((xInPlot / plotW) * (minLen - 1));
+        const clamped = Math.max(0, Math.min(minLen - 1, idx));
+        const cx = xScale(clamped);
+        const btcY = yScale(btcNorm[clamped]);
+        const ethY = yScale(ethNorm[clamped]);
+
+        if (cursor) {
+          cursor.setAttribute('x1', cx);
+          cursor.setAttribute('x2', cx);
+          cursor.setAttribute('opacity', '1');
+        }
+        if (btcDot) {
+          btcDot.setAttribute('cx', cx);
+          btcDot.setAttribute('cy', btcY);
+          btcDot.setAttribute('opacity', '1');
+        }
+        if (ethDot) {
+          ethDot.setAttribute('cx', cx);
+          ethDot.setAttribute('cy', ethY);
+          ethDot.setAttribute('opacity', '1');
+        }
+
+        if (tooltip) {
+          const d = timesData[clamped] ? new Date(timesData[clamped]) : null;
+          const dateStr = d ? (d.getFullYear() + '-' + (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0')) : '—';
+          const btcVal = btcData[clamped];
+          const ethVal = ethData[clamped];
+          tooltip.innerHTML = `
+            <div class="tt-date">${dateStr}</div>
+            <div class="tt-row"><span class="tt-label"><span class="legend-dot" style="background:#f7931a"></span>BTC</span><span>$${btcVal.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span></div>
+            <div class="tt-row"><span class="tt-label"><span class="legend-dot" style="background:#627eea"></span>ETH</span><span>$${ethVal.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span></div>
+          `;
+          tooltip.classList.add('show');
+          // Position tooltip
+          const ttX = e.clientX - rect.left + 12;
+          const ttY = e.clientY - rect.top - 10;
+          const containerRect = container.getBoundingClientRect();
+          tooltip.style.left = Math.min(ttX, rect.width - 150) + 'px';
+          tooltip.style.top = Math.max(ttY, 0) + 'px';
+        }
+      });
+
+      overlay.addEventListener('mouseleave', function() {
+        if (cursor) cursor.setAttribute('opacity', '0');
+        if (btcDot) btcDot.setAttribute('opacity', '0');
+        if (ethDot) ethDot.setAttribute('opacity', '0');
+        if (tooltip) tooltip.classList.remove('show');
+      });
+    }
+  }
+
 function renderDashboard(data, engine) {
     const btc = data.btc, eth = data.eth;
 
@@ -5533,6 +5843,9 @@ function renderDashboard(data, engine) {
     const canonicalPhaseState = mapToCanonicalState(engine.detailed, engine.simplified);
     renderPhasePath('bearPath', ['STRUCTURAL CONFLICT', 'WEAKENING', 'BREAKDOWN RISK', 'BEAR CONFIRMED', 'BEAR EXHAUSTION'], canonicalPhaseState, canonicalPhaseState);
     renderPhasePath('recoveryPath', ['STABILIZATION', 'RECOVERY ATTEMPT', 'STRENGTHENING', 'BULL OVEREXTENDED', 'BULL CONFIRMED'], canonicalPhaseState, canonicalPhaseState);
+
+    // V11.9.1 rev D: Desenăm graficul BTC/ETH din Market Snapshot
+    try { drawSnapshotChart(data); } catch (err) { console.warn('[V11.9.1] Chart draw error:', err); }
   }
 
 
@@ -5698,83 +6011,277 @@ function renderDashboard(data, engine) {
       html: `
         <div class="doc-sections">
           <div class="doc-section">
-            <h3>What CryptoRisk V10.7.7.3 is</h3>
-            <p>CryptoRisk este un sistem de risk management pentru crypto. Nu este un sistem de trading și nu încearcă să prindă topul sau bottom-ul perfect.</p>
-            <p>Scopul lui este să reducă expunerea în zonele de risc, să detecteze schimbările structurale din timp și să transforme semnalele într-o decizie de portofoliu clară.</p>
+            <h3>Ce este CryptoRisk V11.9.1</h3>
+            <p>CryptoRisk este un sistem de risk management pentru crypto. <strong>Nu este un sistem de trading</strong> — nu încearcă să prindă topul sau bottom-ul perfect. Scopul lui este să reducă expunerea în zonele de risc, să detecteze schimbările structurale din timp și să transforme semnalele într-o decizie clară de portofoliu.</p>
           </div>
+
           <div class="doc-callout"><strong>Principiu central:</strong> confirmare &gt; anticipare. Sistemul acceptă intrări mai târzii dacă asta înseamnă protecție mai bună a capitalului.</div>
+
           <div class="doc-section">
-            <h3>How the dashboard should be used</h3>
-            <p>Dashboard-ul trebuie citit ca instrument de poziționare și control al riscului, nu ca generator de trade-uri rapide. El spune mai întâi ce structură vezi, apoi cât risc merită asumat.</p>
+            <h3>Arhitectura pe 3 layere</h3>
+            <p>V11.9.1 combină trei layere care lucrează împreună fără să se suprapună:</p>
+            <div class="doc-kv">
+              <div>Engine V10.7.7.3</div><div>Motorul de bază — calculează stări tehnice (bull/bear/neutral) din RSI, MACD, EMA, Ichimoku. Complet intact și validat.</div>
+              <div>V11 Context Layer</div><div>Adaugă context macro: detectează bear rallies, tranziții reale, tipuri de corecție. Rescrie comentariile când contextul cere asta.</div>
+              <div>Confidence Layer (V11.9.1)</div><div>Recalculează confidence (HIGH/MEDIUM/LOW) pe baza calității reale a semnalelor — nu din plafoane fixe per state.</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Cum trebuie folosit</h3>
+            <p>Dashboard-ul trebuie citit ca instrument de poziționare și control al riscului. Spune mai întâi <em>ce structură vezi</em>, apoi <em>cât risc merită asumat</em>. Nu generează trade-uri rapide — informează decizii de portofoliu.</p>
           </div>
         </div>`
     },
+
     reading: {
       label: 'How to Read',
       html: `
         <div class="doc-sections">
-          <div class="doc-section"><h3>How to read the dashboard</h3>
-            <div class="doc-kv">
-              <div>Market Snapshot</div><div>Rezumatul rapid al stării pieței și mesajul principal de moment.</div>
-              <div>Current Market State</div><div>Verdictul structural principal al engine-ului. Aici vezi dacă piața este bullish, în conflict, în breakdown sau bearish confirmat.</div>
-              <div>BTC / ETH</div><div>Separă contextul activului principal de activul de confirmare și arată cum se aliniază macro și micro.</div>
-              <div>ETH vs BTC</div><div>Arată rotația capitalului. Un semnal relativ pozitiv nu înseamnă automat că piața este sănătoasă în termeni absoluți.</div>
-              <div>Execution Layer</div><div>Transformă starea într-o țintă de expunere, adică răspunsul practic de portofoliu.</div>
-              <div>What’s Changed</div><div>Explică ce s-a modificat recent pe structură, momentum și money flow.</div>
-              <div>BTC Key Levels</div><div>Arată unde sunt nivelurile importante și ce confluence există acolo.</div>
-              <div>Market Phase</div><div>Pune verdictul curent într-un traseu de piață mai larg, util mai ales în tranziții și bear rallies.</div>
-            </div>
+          <div class="doc-section">
+            <h3>Structura dashboard-ului</h3>
+            <p>Dashboard-ul e organizat pe carduri, fiecare cu un rol specific. Iată ce găsești în fiecare:</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Market Snapshot</h3>
+            <p>Rezumat vizual rapid al pieței. Conține:</p>
+            <ul>
+              <li><strong>BTC / ETH / ETH vs BTC</strong> — state-urile simplificate ale celor trei activi</li>
+              <li><strong>What's Happening</strong> — o observație scurtă, directă despre ce se întâmplă acum</li>
+              <li><strong>What It Means</strong> — interpretare concisă a observației</li>
+              <li><strong>Conclusion</strong> — ce să faci pe scurt</li>
+              <li><strong>Grafic BTC/ETH (sub comentarii)</strong> — ultimele 90 zile, cu preț normalizat pentru comparație vizuală directă</li>
+            </ul>
+            <p>Scopul cardului: un utilizator cu 10 secunde să înțeleagă imediat starea.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Current Market State</h3>
+            <p>Verdictul structural principal al engine-ului. Aici vezi:</p>
+            <ul>
+              <li><strong>DETAILED</strong> — state-ul exact (ex: BULL OVEREXTENDED, BREAKDOWN RISK)</li>
+              <li><strong>SIMPLIFIED</strong> — state-ul macro simplificat (ex: BULL CONFIRMED)</li>
+              <li><strong>CONFIDENCE</strong> — HIGH/MEDIUM/LOW, calibrat de Confidence Layer V11.9.1</li>
+              <li><strong>Indicator Snapshot</strong> — RSI 1W, MACD 1D, Ichimoku 1W, ETH vs BTC confirmare, stare curentă</li>
+              <li><strong>What's Happening / What It Means / Conclusion</strong> — interpretare tehnică completă</li>
+            </ul>
+            <p>Scopul cardului: înțelegerea profundă a contextului tehnic pentru decizia de portofoliu.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>BTC / ETH / ETH vs BTC (carduri separate)</h3>
+            <p>Separă contextul activului principal de activul de confirmare. Fiecare card are:</p>
+            <ul>
+              <li><strong>Stare + Confidence</strong> specifică activului</li>
+              <li><strong>Comentariu contextual</strong> despre ce face activul acum</li>
+              <li><strong>ETH vs BTC</strong> — arată rotația capitalului. Un semnal relativ pozitiv nu înseamnă automat piață sănătoasă absolut.</li>
+            </ul>
+          </div>
+
+          <div class="doc-section">
+            <h3>Execution Layer</h3>
+            <p>Traduce starea în acțiune concretă de portofoliu:</p>
+            <ul>
+              <li><strong>Target Exposure</strong> — procentul de alocare la risc</li>
+              <li><strong>Action</strong> — ce să faci tactic (ex: TACTICAL ONLY, HOLD, REDUCE)</li>
+              <li><strong>Execution Memory</strong> — evită zgomotul prin persistența stărilor (nu reacționează la fiecare mișcare zilnică)</li>
+            </ul>
+          </div>
+
+          <div class="doc-section">
+            <h3>What's Changed</h3>
+            <p>Explică ce s-a modificat recent în structură, momentum și money flow. Util pentru a detecta începutul unei schimbări de regim.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>BTC Key Levels</h3>
+            <p>Arată nivelurile de preț importante (suport/rezistență Fibonacci 0.618 / 0.786) și confluence-ul din zone.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Market Phase</h3>
+            <p>Pune verdictul curent într-un traseu de piață mai larg — unde suntem în ciclu. Util mai ales în tranziții și bear rallies. Textul se adaptează când V11 Context Layer detectează un context special (bear rally, transition rally, confirmed recovery, etc.).</p>
           </div>
         </div>`
     },
+
     states: {
       label: 'States',
       html: `
         <div class="doc-sections">
-          <div class="doc-section"><h3>State guide</h3>
+          <div class="doc-section">
+            <h3>Cele 13 stări ale engine-ului</h3>
+            <p>Engine-ul clasifică piața în 13 stări distincte. Iată ce înseamnă fiecare:</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Stări bullish (5)</h3>
             <div class="doc-kv">
-              <div>Bull Confirmed</div><div>Trend validat structural. Este singura stare care acceptă expunere completă fără rezervă defensivă.</div>
-              <div>Bull Overextended</div><div>Trendul rămâne bullish, dar prețul este prea departe de medie. Nu este top call, ci semnal de prudență.</div>
-              <div>Strengthening</div><div>Îmbunătățire reală, dar încă sub nivelul de certitudine al unui bull confirmat.</div>
-              <div>Recovery Attempt</div><div>Încercare de revenire. Nu este confirmare completă, deci re-entry-ul rămâne gradual.</div>
-              <div>Structural Conflict</div><div>Macro-ul încă nu confirmă deteriorarea, dar indicatorii leading se strică. Context de prudență maximă.</div>
-              <div>Breakdown Risk</div><div>Damage real în structură și momentum. Prioritatea devine protecția capitalului.</div>
-              <div>Bear Confirmed</div><div>Trend negativ confirmat. Sistemul nu mai caută upside, ci conservarea capitalului.</div>
-              <div>Relief Rally</div><div>Bounce tehnic în context bearish. Nu se tratează ca recovery constructiv.</div>
-              <div>Bear Exhaustion</div><div>Extremă de panică. Poate apărea bounce, dar fără confirmare structurală sistemul rămâne defensiv.</div>
+              <div>RELIEF RALLY</div><div>Bounce tehnic, neconfirmat structural. Momentum zilnic pozitiv, dar contextul macro rămâne fragil.</div>
+              <div>RECOVERY ATTEMPT</div><div>Încercare de revenire cu confirmări tehnice limitate. Mai curat decât relief rally, dar încă nesigur.</div>
+              <div>STRENGTHENING</div><div>Revenire cu consistență. Semnalele constructive devin mai clare. Target exposure moderat.</div>
+              <div>BULL CONFIRMED</div><div>Trend validat structural (Ichimoku above cloud, momentum puternic). Singurul care acceptă expunere completă.</div>
+              <div>BULL OVEREXTENDED</div><div>Trend bullish puternic, dar preț departe de medii. Nu e top call — e semnal de prudență tactică.</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Stări bearish (5)</h3>
+            <div class="doc-kv">
+              <div>WEAKENING</div><div>Slăbire timpurie — indicatori scad, dar structura încă ok. Primul semnal de atenție.</div>
+              <div>BREAKDOWN RISK</div><div>Nivele importante încep să fie pierdute. Probabilitate crescută de deteriorare structurală.</div>
+              <div>BEAR CONFIRMED</div><div>Trend bearish dominant, structură descendentă confirmată. Expunere zero.</div>
+              <div>STRUCTURAL WEAKNESS</div><div>Slăbiciune persistentă dar fără breakdown complet. Context defensiv.</div>
+              <div>BEAR EXHAUSTION</div><div>Presiunea vânzare încetinește. Bottom posibil dar nu confirmat — atenție la bounces.</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Stări neutre (3)</h3>
+            <div class="doc-kv">
+              <div>SIDEWAYS RANGE</div><div>Piață fără direcție clară. Semnal lateral, așteptare pentru breakout.</div>
+              <div>STRUCTURAL CONFLICT</div><div>Indicatori contradictori. Expunere redusă automat (max 60% confidence).</div>
+              <div>STABILIZATION</div><div>După slăbire, piața găsește un echilibru. Primul pas pozitiv dar insuficient pentru bull.</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Stare specială</h3>
+            <div class="doc-kv">
+              <div>POST-CRASH INSTABILITY</div><div>După căderi mari (&gt;15% într-o zi), piața e instabilă pentru câteva zile. Confidence LOW automat.</div>
             </div>
           </div>
         </div>`
     },
+
+    confidence: {
+      label: 'Confidence',
+      html: `
+        <div class="doc-sections">
+          <div class="doc-section">
+            <h3>Confidence Layer (V11.9.1)</h3>
+            <p>Layer nou care recalculează confidence-ul bazat pe <em>calitatea reală a semnalelor</em>, nu pe plafoane fixe per state. Două componente cheie:</p>
+            <div class="doc-kv">
+              <div>Confluence Score</div><div>Cât de aliniate sunt semnalele (Ichimoku 1W, RSI 1W, RSI 1D, EMA50/200, ETH vs BTC, bull/bear streak)</div>
+              <div>Transition/Saturation</div><div>Câte zile bullish/bearish au fost în ultimele 90 — distinge tranziție proaspătă de saturație de ciclu</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Regula HIGH bullish</h3>
+            <p>HIGH bullish apare doar când <strong>AMBELE</strong> condiții sunt îndeplinite:</p>
+            <ul>
+              <li>Scor confluence bullish ≥ 5 (semnalele sunt aliniate puternic)</li>
+              <li>Zile bullish în ultimele 90 ≤ 20 (tranziție proaspătă, nu top saturat)</li>
+            </ul>
+            <p>Dacă primul e îndeplinit dar al doilea nu → MEDIUM (confluence bună, dar piața e deja "plină" de zile bullish).</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Regula HIGH bearish</h3>
+            <p>Mai strictă decât bullish — HIGH bearish cere:</p>
+            <ul>
+              <li>Scor confluence bearish ≥ 9 (foarte puternic)</li>
+              <li>Zile bearish în ultimele 90 ≤ 20 (bear proaspăt, nu epuizat)</li>
+            </ul>
+            <p>LOW bearish (scor &lt; 5) e informativ — semnalează risc de reversal iminent.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Persistența confidence history</h3>
+            <p>Sistemul păstrează ultimele 90 zile de tracking în localStorage:</p>
+            <ul>
+              <li><strong>Auto-save</strong> la fiecare zi nouă</li>
+              <li><strong>Auto-load</strong> la deschiderea dashboard-ului — nu pierzi tracking-ul la refresh sau închidere browser</li>
+              <li><strong>Stale detection</strong> — dacă ultima zi din history e mai veche de 14 zile, se ignoră și se recomandă replay pentru populare</li>
+            </ul>
+            <div class="doc-callout"><strong>Recomandare:</strong> la prima utilizare sau după pauză lungă, dă <em>Run Historical Replay</em> din 3+ luni în urmă până azi. Sistemul va popula 90 zile de history și Confidence Layer va fi calibrat corect imediat.</div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Interacțiunea cu V11 Bear Rally</h3>
+            <p>Când V11 detectează un bear rally (Ichimoku 1W below cloud + stare bullish), Confidence Layer calculează confidence normal, apoi V11 poate reduce mai departe. Reason-ul afișat e combinat pentru audit: <code>BEAR_RALLY_BELOW (pre-override: BULL_CONFLUENCE_OK)</code>.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Validare statistică</h3>
+            <p>Regulile au fost calibrate pe 3167 zile istorice (2017-2026) cu discriminator statistic &gt;5pp între niveluri. HIGH bullish apare rar (~3.4% din zile) dar cu acuratețe 72% pozitive. MEDIUM e cel mai comun (~61%) fiind starea default de incertitudine moderată. LOW (~36%) semnalează contexte cu confluence slab sau contradictoriu.</p>
+          </div>
+        </div>`
+    },
+
     actions: {
       label: 'Actions',
       html: `
         <div class="doc-sections">
-          <div class="doc-section"><h3>Execution logic</h3>
-            <p>Sistemul nu mai funcționează ca IN / OUT. Fiecare stare este transformată într-o țintă de expunere, iar memoriei de execuție i se permite să reducă zgomotul și schimbările prea dese.</p>
+          <div class="doc-section">
+            <h3>Cum se transformă starea în acțiune</h3>
+            <p>Fiecare combinație state × confidence produce o țintă de expunere specifică. Sistemul <strong>nu-ți spune să cumperi sau să vinzi</strong> — îți spune cât risc merită asumat dat fiind contextul.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Ținte tipice de expunere</h3>
             <div class="doc-kv">
-              <div>100%</div><div>Expunere completă. Acceptată doar în context constructiv clar.</div>
-              <div>70–80%</div><div>Trend favorabil, dar nu perfect. Se poate adăuga gradual.</div>
-              <div>50–60%</div><div>Poziționare echilibrată. Există semnale bune, dar și motive de prudență.</div>
-              <div>20–40%</div><div>Mod defensiv. Ținta este reducerea riscului și păstrarea doar a unui nucleu.</div>
-              <div>0–15%</div><div>Capital protection aproape completă. Piața nu justifică expunere normală.</div>
+              <div>BULL CONFIRMED + HIGH</div><div>80-100% (singura zonă care admite expunere agresivă)</div>
+              <div>BULL CONFIRMED + MEDIUM</div><div>60-80%</div>
+              <div>STRENGTHENING + MEDIUM</div><div>65-80% (poziționare constructivă graduală)</div>
+              <div>RELIEF RALLY / RECOVERY ATTEMPT</div><div>10-35% (tactic, nu structural)</div>
+              <div>BREAKDOWN RISK / BEAR CONFIRMED</div><div>0-15% (defensiv)</div>
+              <div>POST-CRASH INSTABILITY</div><div>0% (incertitudine maximă)</div>
             </div>
           </div>
-          <div class="doc-callout"><strong>Execution memory:</strong> V9.5 reduce zgomotul prin persistență pe stări, prag minim de schimbare, minimum hold window și re-entry gradual. Scopul este mai puțin whipsaw și o legătură mai clară între verdictul PRO și mesajul LITE.</div>
+
+          <div class="doc-section">
+            <h3>Execution Memory</h3>
+            <p>Evită zgomotul prin:</p>
+            <ul>
+              <li><strong>Persistență pe stări</strong> — nu comută expunerea la fiecare oscilație zilnică</li>
+              <li><strong>Prag minim de schimbare</strong> — doar modificări semnificative (&gt;5pp) sunt reflectate</li>
+              <li><strong>Minimum hold window</strong> — odată setată o expunere, se menține minimum câteva zile</li>
+            </ul>
+            <p>Rezultat: mai puține re-balansări, dar fiecare e meritată.</p>
+          </div>
+
+          <div class="doc-section">
+            <h3>Rebalancing practic</h3>
+            <p>Verifică dashboard-ul zilnic, dar acționează doar când:</p>
+            <ul>
+              <li>Target exposure se schimbă cu &gt;15pp</li>
+              <li>State-ul trece între categorii (bull → neutru → bear)</li>
+              <li>V11 Context Layer activează un nou tip de commentary (bear rally, transition rally)</li>
+            </ul>
+          </div>
         </div>`
     },
+
     limitations: {
       label: 'Limitations',
       html: `
         <div class="doc-sections">
-          <div class="doc-section"><h3>Known limitations</h3>
+          <div class="doc-section">
+            <h3>Ce NU face sistemul</h3>
             <ul>
-              <li>Nu prinde topul sau bottom-ul exact.</li>
-              <li>Reacționează la structură; nu promite predicție perfectă.</li>
-              <li>Poate sacrifica o parte din upside în bull pentru a reduce drawdown-ul.</li>
-              <li>ETH/BTC este măsură relativă, nu verdict absolut asupra pieței.</li>
-              <li>Execution layer-ul ajută la poziționare, dar nu înlocuiește disciplina de portofoliu.</li>
+              <li><strong>Nu prezice top-uri sau bottom-uri</strong> — sistemul confirmă schimbări, nu le anticipează</li>
+              <li><strong>Nu generează trade-uri</strong> — produce ținte de expunere pe portofoliu</li>
+              <li><strong>Nu garantează performanță</strong> — e un instrument de risk management, nu o strategie de randament</li>
+              <li><strong>Nu e specializat pe altcoins</strong> — focus BTC + ETH pe date Binance spot</li>
             </ul>
+          </div>
+
+          <div class="doc-section">
+            <h3>Limite cunoscute</h3>
+            <div class="doc-kv">
+              <div>Intrări târzii</div><div>Sistemul așteaptă confirmare structurală — va rata primele 5-10% dintr-o mișcare, dar va evita false-positive-urile</div>
+              <div>Whipsaws în sideways</div><div>În range-uri strânse, state-urile pot oscila — de asta există Execution Memory</div>
+              <div>Eventuri de news</div><div>Sistemul se bazează pe price action — nu anticipează evenimente macroeconomice sau regulatory</div>
+              <div>Volatility extreme</div><div>La mișcări &gt;15%/zi, sistemul activează POST-CRASH INSTABILITY și așteaptă stabilizare</div>
+            </div>
+          </div>
+
+          <div class="doc-section">
+            <h3>Disclaimer</h3>
+            <p>CryptoRisk este un instrument analitic personal. Nu este consultanță financiară. Deciziile de investiții rămân responsabilitatea utilizatorului. Sistemul a fost dezvoltat și validat pe date istorice — performanța trecută nu garantează rezultate viitoare.</p>
           </div>
         </div>`
     }
@@ -6572,6 +7079,9 @@ function buildChangelogPanel() {
             <li><strong>rev D: Texte distincte per card pentru V11 Commentary.</strong> Problema: când V11 Commentary era activ (ex: BEAR_RALLY_BELOW), același text se aplica pe 4 carduri (snapshot, market, btc, phase) producând duplicare vizibilă. Fix: MAP-ul V11 Commentary extins cu variante <code>snapshotWhat/Meaning/Conclusion</code> și <code>phaseWhat/Meaning/Conclusion</code> pentru toate 9 chei (OE_TIP_A/B, CORRECTION_EARLY/HEALTHY/BREAKDOWN, BEAR_RALLY_BELOW/INSIDE, TRANSITION_RALLY, CONFIRMED_RECOVERY). Snapshot primește versiune scurtă (observație directă, 1-2 propoziții). Phase primește versiune macro (poziție în ciclu). Market și BTC păstrează textul full pentru interpretare completă. Aplicabilitate: BACKWARDS COMPATIBLE — fallback la textul principal dacă variantele lipsesc.</li>
             <li><strong>rev D: localStorage persistence pentru confidence history.</strong> Problema: <code>_confidenceHistory</code> trăia doar în memoria sesiunii — la reload de pagină sau închidere browser, sistemul pierdea 90 zile de tracking și reîncepea de la zero. În primele zile după reload, <code>bullDaysIn90 = 1</code> trecea trivial pragul HIGH (≤20) producând label HIGH greșit. Fix: funcții <code>persistConfidenceHistory()</code> / <code>loadConfidenceHistory()</code> care salvează payload-ul în localStorage la fiecare zi nouă și îl restaurează la startup. Key: <code>cryptorisk_v11_9_1_confidence_history</code>. Payload: history, streak-uri, counts, blocBRecentDays, savedAt timestamp. Protecții: (1) persist dezactivat în timpul replay-ului pentru a nu overwrite history-ul live; (2) dacă ultima zi din history e mai veche de 14 zile, se ignoră payload-ul (stale detection) — recomandare pentru user să ruleze replay de repopulare; (3) load recalculează counts din history ca safety; (4) clearConfidenceHistoryStorage() disponibil pentru reset manual.</li>
             <li><strong>rev D: Replay păstrează history când include data curentă.</strong> Problema: chiar și după un replay complet care popula corect cele 90 zile, <code>restoreV11State(v11Snapshot)</code> din finally șterge rezultatul la final. Fix: dacă replay-ul are <code>endDate >= today</code>, la final se detectează că replay-ul simulează cronologic identic cu ce ar fi fost live trading, deci history-ul generat e păstrat în v11State și persistat explicit în localStorage (bypass guard de replayState.running). Mesaj de confirmare în console: "[V11.9.1] Replay reached today — confidence history păstrat (N zile)." Utilitate: dacă user deschide dashboard-ul după pauză lungă și vrea confidence calibrat pentru ziua 1, dă Replay din ~3 luni în urmă până azi și sistemul e imediat precis.</li>
+            <li><strong>rev E: Guide complet rescris.</strong> Reorganizat pentru V11.9.1 cu arhitectura pe 3 layere (Engine V10.7.7.3 + V11 Context Layer + Confidence Layer). Extins de la 5 la 6 tab-uri — adăugat tab nou <em>Confidence</em> care explică: regulile HIGH/MEDIUM/LOW, persistența localStorage, interacțiunea cu V11 Bear Rally, validarea statistică pe 3167 zile. Tab-ul <em>How to Read</em> descrie fiecare card și sub-card în detaliu. Tab-ul <em>States</em> grupează cele 13 stări pe categorii (bullish/bearish/neutre/speciale). Tab-urile <em>Actions</em> și <em>Limitations</em> rescrise cu ținte de expunere tipice și limite cunoscute ale sistemului.</li>
+            <li><strong>rev E: Grafic BTC/ETH în Market Snapshot.</strong> Adăugat sub comentarii pentru a umple spațiul gol din card. SVG inline fără dependențe externe (fără TradingView, Chart.js, Recharts). 90 zile de tracking cu preț normalizat la 100 pentru comparație vizuală directă BTC vs ETH. Culori oficiale: BTC orange <code>#f7931a</code>, ETH albastru <code>#627eea</code>. Gradient fill sub linii, gridlines discrete, axe cu date lunare. Tooltip interactiv la hover: cursor vertical, dots pe linii, dată exactă și prețuri absolute ($USD). Legendă în header cu prețurile curente. Fallback timestamp din <code>data.fetchedAt</code> backward dacă <code>btc.daily.times</code> nu e disponibil.</li>
+            <li><strong>rev E: Cleanup — footer și referințe vechi.</strong> Șters textul <em>"Demo simplificat: state engine + confidence engine + EMA50..."</em> din footer (nu mai reflectă complexitatea V11.9.1). Actualizat textul vizibil despre Execution Memory din <em>"V9.5 reduce zgomotul..."</em> la <em>"Sistemul reduce zgomotul..."</em> — referința la versiunea veche era confuză. Heading-urile de changelog pentru versiuni istorice (V9.5, V10.5.x) rămân — sunt istoric legitim documentat.</li>
           </ul>
         </div>
 
