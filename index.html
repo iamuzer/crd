@@ -1297,7 +1297,7 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V11.9.1 rev F</h1>
+<h1>CryptoRisk Dashboard — V11.9.1 rev G</h1>
 <div class="subtitle">Engine V11.9.1 · V10.7.7.3 engine (intact) · V11 Context Layer (Bloc A-E) · Confidence Layer (confluence scoring + transition/saturation discriminator) · commentary override · bear rally / transition detection · execution memory + journal</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
@@ -1655,6 +1655,7 @@
     bearContext: {
       bearStartDate: null,
       btcATH: 0,
+      btcATHDate: null, // V11.9.1 rev G: tracking data ATH pentru context user
     },
     correctionContext: {
       active: false,
@@ -1708,7 +1709,7 @@
       newHighTriggered: false,
       newHighDate: null,
     };
-    v11State.bearContext = { bearStartDate: null, btcATH: 0 };
+    v11State.bearContext = { bearStartDate: null, btcATH: 0, btcATHDate: null };
     v11State.correctionContext = {
       active: false,
       startDate: null,
@@ -1744,10 +1745,14 @@
   }
 
   // Actualizare ATH + reset bear start la nou ATH
+  // V11.9.1 rev G: tracking explicit al datei + persist în localStorage
   function updateBtcATH(btcPrice) {
     if (btcPrice > v11State.bearContext.btcATH) {
       v11State.bearContext.btcATH = btcPrice;
+      v11State.bearContext.btcATHDate = v11TodayIso();
       v11State.bearContext.bearStartDate = null;
+      // Persist imediat ce ATH-ul crește (date critic)
+      persistAbsoluteATH();
     }
   }
 
@@ -2463,6 +2468,123 @@
   // La startup, încărcăm automat history-ul persistat
   loadConfidenceHistory();
 
+  // ═══════════════════════════════════════════════════════════════════
+  // V11.9.1 rev G: Persistență localStorage pentru absoluteATH
+  // 
+  // Bug rezolvat: btcATH se reseta la fiecare reload de pagină (init=0).
+  // Dacă utilizatorul deschidea dashboard-ul când BTC era sub ATH-ul real
+  // (ex: $80k după ATH istoric $124k), btcATH se setea la $80k, drawdownPct=0%,
+  // iar deciziile Bloc B/C (isAdvancedAccum, isDeepBear) nu se activau.
+  // 
+  // Plus: drawdownAth folosea ATH din ULTIMELE 365 zile, ceea ce însemna că
+  // după 365+ zile de la un top de ciclu, ATH-ul cădea din fereastră și 
+  // drawdown-ul afișat se "reseta" artificial.
+  //
+  // Soluție: SINGLE SOURCE OF TRUTH — absoluteATH persistat în localStorage,
+  // folosit atât pentru afișaj (drawdownAth) cât și pentru logica V11 (btcATH).
+  // Key: 'cryptorisk_v11_9_1_absolute_ath'
+  // ═══════════════════════════════════════════════════════════════════
+  const ABSOLUTE_ATH_STORAGE_KEY = 'cryptorisk_v11_9_1_absolute_ath';
+
+  function persistAbsoluteATH() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      // În timpul replay-ului, NU persistăm — replay-ul are propriul btcATH cronologic
+      // (vezi tratamentul din finally-ul runHistoricalReplay)
+      if (typeof replayState !== 'undefined' && replayState && replayState.running) return;
+      const ath = v11State.bearContext.btcATH;
+      const date = v11State.bearContext.btcATHDate;
+      if (!Number.isFinite(ath) || ath <= 0) return;
+      const payload = {
+        version: 'v11.9.1',
+        savedAt: new Date().toISOString(),
+        price: ath,
+        dateIso: date || null
+      };
+      localStorage.setItem(ABSOLUTE_ATH_STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn('[V11.9.1] Persist absolute ATH failed:', err);
+    }
+  }
+
+  function loadAbsoluteATH() {
+    try {
+      if (typeof localStorage === 'undefined') return false;
+      const raw = localStorage.getItem(ABSOLUTE_ATH_STORAGE_KEY);
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      if (!payload || !Number.isFinite(payload.price) || payload.price <= 0) return false;
+      v11State.bearContext.btcATH = payload.price;
+      v11State.bearContext.btcATHDate = payload.dateIso || null;
+      console.info('[V11.9.1] Absolute ATH loaded from storage: $' + Math.round(payload.price).toLocaleString('en-US') + (payload.dateIso ? ' (' + payload.dateIso + ')' : ''));
+      return true;
+    } catch (err) {
+      console.warn('[V11.9.1] Load absolute ATH failed:', err);
+      return false;
+    }
+  }
+
+  function clearAbsoluteATHStorage() {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(ABSOLUTE_ATH_STORAGE_KEY);
+      }
+    } catch (err) {}
+  }
+
+  // La startup, încărcăm automat ATH-ul persistat
+  loadAbsoluteATH();
+
+  // V11.9.1 rev G: Calculator ATH absolut din candele disponibile
+  // Folosit la primul fetch pentru a stabili baseline corect chiar și pentru 
+  // utilizatori noi (care nu au localStorage populat). Folosește weekly highs
+  // care acoperă întreg istoricul Binance disponibil (până la 500 săptămâni).
+  function computeAbsoluteATHFromKlines(weeklyHighs, weeklyOpenTimes) {
+    if (!Array.isArray(weeklyHighs) || !weeklyHighs.length) return null;
+    let maxPrice = 0;
+    let maxIdx = -1;
+    for (let i = 0; i < weeklyHighs.length; i++) {
+      const v = Number(weeklyHighs[i]);
+      if (Number.isFinite(v) && v > maxPrice) {
+        maxPrice = v;
+        maxIdx = i;
+      }
+    }
+    if (maxIdx < 0) return null;
+    let dateIso = null;
+    if (Array.isArray(weeklyOpenTimes) && weeklyOpenTimes[maxIdx] != null) {
+      const t = Number(weeklyOpenTimes[maxIdx]);
+      if (Number.isFinite(t)) dateIso = new Date(t).toISOString().slice(0, 10);
+    }
+    return { price: maxPrice, dateIso };
+  }
+
+  function applyAbsoluteATHIfHigher(candidate) {
+    if (!candidate || !Number.isFinite(candidate.price) || candidate.price <= 0) return false;
+    const current = v11State.bearContext.btcATH || 0;
+    if (candidate.price > current) {
+      v11State.bearContext.btcATH = candidate.price;
+      v11State.bearContext.btcATHDate = candidate.dateIso || null;
+      // V11.9.1 rev G: bearStartDate reset DOAR pentru ATH-uri "live" (din ultimele 2 zile).
+      // Pentru ATH-uri istorice descoperite (ex: weekly highs din 2025 când suntem în 2026),
+      // bear-ul curent (dacă există) trebuie păstrat — n-am ieșit din el doar pentru că
+      // sistemul a aflat acum despre un top vechi.
+      let isLiveATH = false;
+      if (candidate.dateIso) {
+        const candidateMs = Date.parse(candidate.dateIso + 'T00:00:00Z');
+        const nowMs = v11NowMs();
+        const ageDays = (nowMs - candidateMs) / 86400000;
+        isLiveATH = ageDays <= 2; // Maxim 2 zile vechi = "ATH proaspăt făcut"
+      }
+      if (isLiveATH) {
+        v11State.bearContext.bearStartDate = null;
+      }
+      persistAbsoluteATH();
+      return true;
+    }
+    return false;
+  }
+
   function applyV11ConfidenceAdjustments(engine, v11, data) {
     if (!engine) return engine;
 
@@ -2681,9 +2803,29 @@
     const change3d  = price3d  ? ((dClose[dClose.length-1] - price3d)  / price3d  * 100) : 0;
     const change7d  = price7d  ? ((dClose[dClose.length-1] - price7d)  / price7d  * 100) : 0;
     const change30d = price30d ? ((dClose[dClose.length-1] - price30d) / price30d * 100) : 0;
-    // ATH drawdown (față de maximul din ultimele 365 zile)
-    const ath365 = Math.max(...dClose.slice(-365));
-    const drawdownAth = ath365 > 0 ? ((dClose[dClose.length-1] - ath365) / ath365 * 100) : 0;
+    // V11.9.1 rev G: ATH absolut (nu 365 zile rolling — vezi audit drawdownAth)
+    // Pentru BTC: încercăm să upgrade absoluteATH din weekly highs disponibile (120 săpt)
+    // Asta acoperă ATH oct 2025 chiar și pentru utilizatori noi fără localStorage.
+    if (symbol === 'BTCUSDT') {
+      const weeklyHighsAll = weeklyK.map(k => Number(k[2]));
+      const weeklyOpenTimes = weeklyK.map(k => Number(k[0]));
+      const candidateATH = computeAbsoluteATHFromKlines(weeklyHighsAll, weeklyOpenTimes);
+      applyAbsoluteATHIfHigher(candidateATH);
+    }
+    // drawdownAth folosește acum absoluteATH (single source of truth)
+    // Pentru ETH sau alte simboluri non-BTC, fallback la calculul vechi (365d) pentru că
+    // V11 Bloc B/C tracking-ul ATH e pentru BTC specific
+    let drawdownAth;
+    let athReference;
+    if (symbol === 'BTCUSDT' && v11State.bearContext.btcATH > 0) {
+      athReference = v11State.bearContext.btcATH;
+      drawdownAth = ((dClose[dClose.length-1] - athReference) / athReference) * 100;
+    } else {
+      // Fallback pentru ETH și pentru cazul când btcATH n-a fost încă inițializat
+      const ath365 = Math.max(...dClose.slice(-365));
+      athReference = ath365;
+      drawdownAth = ath365 > 0 ? ((dClose[dClose.length-1] - ath365) / ath365 * 100) : 0;
+    }
 
     // V11.9.1 rev F — Fix 1: capturăm timestamp-ul ultimului candle pentru stale detection
     const lastDailyOpenTime = dailyK.length ? Number(dailyK[dailyK.length - 1][0]) : null;
@@ -3047,8 +3189,12 @@ async function fetchData() {
     const change3d  = price3d  ? ((price - price3d)  / price3d  * 100) : 0;
     const change7d  = price7d  ? ((price - price7d)  / price7d  * 100) : 0;
     const change30d = price30d ? ((price - price30d) / price30d * 100) : 0;
-    const ath365 = Math.max(...dClose.slice(-365));
-    const drawdownAth = ath365 > 0 ? ((price - ath365) / ath365 * 100) : 0;
+    // V11.9.1 rev G: ATH absolut (nu 365 zile rolling). În replay, dClose conține
+    // toate zilele cronologic până la momentul acestei iterații — deci max global e
+    // exact ATH-ul absolut "la acea dată" în istoric. Asta corectează bug-ul în care
+    // după 365+ zile de la un top, ATH-ul cădea din fereastră artificial.
+    const athAbs = dClose.length ? Math.max(...dClose) : 0;
+    const drawdownAth = athAbs > 0 ? ((price - athAbs) / athAbs * 100) : 0;
 
     const validHist = macdData.hist.filter(v => v != null);
     return {
@@ -3515,9 +3661,38 @@ async function fetchData() {
       const replayBearStreak = v11State._bearStreak;
       const replayBullDaysIn90 = v11State._bullDaysIn90;
       const replayBearDaysIn90 = v11State._bearDaysIn90;
-      
+
+      // V11.9.1 rev G: Capturăm și ATH descoperit în replay (înainte de restore).
+      // Replay-ul iterează cronologic toată istoria → btcATH e ATH-ul real istoric.
+      // Dacă e mai mare decât ATH-ul pre-replay (ex: utilizator nou cu localStorage gol),
+      // îl păstrăm și-l persistăm.
+      const replayDiscoveredATH = v11State.bearContext.btcATH || 0;
+      const replayDiscoveredATHDate = v11State.bearContext.btcATHDate || null;
+
       restoreV11State(v11Snapshot);
-      
+
+      // V11.9.1 rev G: Dacă replay-ul a descoperit un ATH mai mare → păstrăm și persist
+      if (replayDiscoveredATH > (v11State.bearContext.btcATH || 0)) {
+        v11State.bearContext.btcATH = replayDiscoveredATH;
+        v11State.bearContext.btcATHDate = replayDiscoveredATHDate;
+        // bearStartDate rămâne ce e în snapshot (nu ștergem) — bearStartDate e pentru
+        // bear-ul curent, ATH descoperit în trecut nu trebuie să reseteze bear curent
+        try {
+          if (typeof localStorage !== 'undefined') {
+            const athPayload = {
+              version: 'v11.9.1',
+              savedAt: new Date().toISOString(),
+              price: replayDiscoveredATH,
+              dateIso: replayDiscoveredATHDate
+            };
+            localStorage.setItem(ABSOLUTE_ATH_STORAGE_KEY, JSON.stringify(athPayload));
+            console.info('[V11.9.1] Replay descoperit ATH mai mare: $' + Math.round(replayDiscoveredATH).toLocaleString('en-US') + (replayDiscoveredATHDate ? ' (' + replayDiscoveredATHDate + ')' : '') + ' — persistat în localStorage.');
+          }
+        } catch (err) {
+          console.warn('[V11.9.1] Post-replay ATH persist failed:', err);
+        }
+      }
+
       if (replayReachesToday && replayHistory.length > 0) {
         // Merge: păstrăm history-ul din replay (e mai complet decât snapshot-ul)
         v11State._confidenceHistory = replayHistory;
@@ -7141,6 +7316,17 @@ function buildChangelogPanel() {
             <li><strong>rev F (Fix 2): Connection lost detection în countdown.</strong> Problema: dacă utilizatorul lasă tab-ul deschis și internetul cade temporar, auto-refresh la 5min eșuează silent (mesaj <em>"✕ EROARE SYNC"</em> apare scurt apoi countdown continuă să afișeze chip-urile vechi <em>"✓ SINCRONIZAT 23:45 · 🟢 LIVE 100%"</em>). Utilizatorul poate crede că sistemul e live când de fapt nu mai sincronizează de ore. Fix: tracker global <code>lastSuccessfulSyncMs</code> setat la fiecare sync reușit (LIVE sau DEGRADED — ambele înseamnă că am primit date). Countdown-ul (tick-ul de 1s) verifică acum dacă ultima sync e mai veche de 7 minute (5min refresh + 2min buffer) — dacă da, suprascrie chip-urile cu <em>"⚠ STALE · ultima sync Xm în urmă"</em> și <em>"🟡 STALE · datele nu mai sunt live"</em>. La următorul refresh reușit, totul revine automat la normal.</li>
             <li><strong>rev F (Cleanup): Eliminat cod mort.</strong> La sfârșitul fișierului exista un <code>setInterval</code> care apela <code>updateDashboard()</code> sau <code>updateStablecoinCard()</code> la 5 minute — funcții care nu există în cod. Era remnant de dezvoltare fără efect funcțional dar polua codebase-ul. Șters complet. Refresh-ul real e gestionat de <code>autosyncInterval</code> care apelează <code>refreshLive()</code>.</li>
             <li><strong>rev F (To-do pentru V12):</strong> 4 probleme minore identificate la audit dar amânate pentru V12 unde se vor rezolva natural cu noua arhitectură: (1) <em>Stablecoin cache 12h</em> — utilizatorul nu știe că datele USDT/USDC pot fi cu 12h în urmă (V12 va avea Composition Layer cu transparency explicit per source). (2) <em>Volume trend bias pe ziua parțială</em> — dVol[length-1] include ziua curentă incompletă, producând salturi artificiale ±20% la trecerea de la o zi la alta (V12 va exclude ziua curentă din MA-uri). (3) <em>Drawdown ATH 365d</em> — nu reflectă ATH absolut dacă bear durează &gt;1 an (V12 va folosi ATH absolut tracked separat). (4) <em>Live ticker freshness</em> — nu verifică timestamp-ul ticker-ului 24h (acoperit parțial de Fix 1 prin candle freshness, dar V12 va valida explicit fiecare endpoint).</li>
+            <li><strong>rev G (Fix critical): drawdown ATH calculat din ATH absolut, NU din 365d rolling.</strong> Bug major descoperit la audit pre-V12. Două probleme independente, ambele rezolvate în același patch:
+              <ul>
+                <li><strong>Bug 1 — btcATH se reseta la fiecare reload de pagină.</strong> În V11 Bloc B/C, <code>v11State.bearContext.btcATH</code> se inițializa la 0 la fiecare reload. Dacă utilizatorul deschidea dashboard-ul când BTC era sub ATH-ul real (ex: $80k după ATH istoric $124k din oct 2025), btcATH se setea la $80k pe baza primului fetch, <code>drawdownPct</code> calculat era 0%, iar deciziile <code>isAdvancedAccum</code> (drawdown &gt; 50% AND bearMonths &gt; 6) și <code>isDeepBear</code> (drawdown &gt; 40% AND bearMonths &gt; 4) NU se activau. Sistemul nu detecta bear market-ul real în care utilizatorul se afla. Mesajele BEAR_RALLY_INSIDE / TRANSITION_RALLY și ajustările de confidence pentru bear context lipsau complet.</li>
+                <li><strong>Bug 2 — drawdownAth folosea fereastra de 365 zile.</strong> În <code>fetchSymbol</code> și <code>buildSymbolFromKlines</code>, formula <code>Math.max(...dClose.slice(-365))</code> însemna că după 365+ zile de la un top istoric, ATH-ul ieșea din fereastră și drawdown-ul afișat se "reseta" artificial la o valoare mai mică. Pentru un bear care durează 12-18 luni (istoric: 2014-2015, 2018, 2022), utilizatorul vedea dintr-odată "drawdown -10%" deși realitatea era -50%. Decizii Bloc B/C bazate pe blocB.drawdownPct erau și ele afectate cumulativ cu Bug 1.</li>
+                <li><strong>Soluție unificată — Single Source of Truth pentru ATH.</strong> Helpers noi: <code>persistAbsoluteATH()</code>, <code>loadAbsoluteATH()</code>, <code>computeAbsoluteATHFromKlines()</code>, <code>applyAbsoluteATHIfHigher()</code>. Pattern identic cu cel de la <code>_confidenceHistory</code>. Key localStorage: <code>cryptorisk_v11_9_1_absolute_ath</code>. Payload: { version, savedAt, price, dateIso }. La startup, <code>loadAbsoluteATH()</code> restaurează ATH-ul din localStorage. La primul fetch BTCUSDT, <code>computeAbsoluteATHFromKlines</code> scanează MAX din toate weekly highs disponibile (120 săpt ≈ 2.3 ani — acoperă ATH oct 2025 chiar și pentru utilizatori noi). <code>applyAbsoluteATHIfHigher</code> upgrade-ză btcATH dacă e cazul. <code>updateBtcATH</code> (apelat din <code>deriveV11Context</code> cu prețul curent) persistă imediat când ATH crește live. Tracking explicit al datei prin <code>btcATHDate</code> (folosit pentru context user, încă neexpus în UI).</li>
+                <li><strong>drawdownAth în <code>fetchSymbol</code> folosește acum btcATH din state (single source).</strong> Pentru BTC: dacă btcATH e populat (din localStorage sau din weekly highs), drawdownAth = (price - btcATH) / btcATH * 100. Pentru ETH și pentru cazul edge când btcATH=0 (utilizator complet nou înainte de primul fetch reușit), fallback la calculul vechi (365d) — unic caz tranzitoriu. În <code>buildSymbolFromKlines</code> (folosit în replay), drawdownAth folosește max global din dClose-ul disponibil — corect cronologic pentru replay.</li>
+                <li><strong>Replay finally block actualizat pentru ATH.</strong> Înainte de <code>restoreV11State(v11Snapshot)</code>, capturăm <code>replayDiscoveredATH</code> și <code>replayDiscoveredATHDate</code> din v11State. După restore, dacă replayDiscoveredATH &gt; ATH-ul din snapshot → păstrăm și persistăm manual în localStorage (bypass guard-ul <code>replayState.running</code> din <code>persistAbsoluteATH</code>). Asta înseamnă că un utilizator nou poate rula replay full history pentru a popula localStorage cu ATH-ul real, sau un utilizator existent poate rula replay pentru a corecta un ATH localStorage eronat. <code>bearStartDate</code> NU e atins în finally — bear-ul curent (din snapshot) e respectat.</li>
+                <li><strong>Edge case rezolvat — bearStartDate la primul fetch fără localStorage.</strong> Logica naïvă ar fi resetat bearStartDate=null la orice descoperire de ATH, ștergând tracking-ul bear-ului curent. <code>applyAbsoluteATHIfHigher</code> verifică acum vârsta ATH-ului candidat: dacă e ≤2 zile (ATH proaspăt făcut live) → reset bearStartDate corect. Dacă e &gt;2 zile (ATH istoric descoperit retroactiv din weekly highs) → bearStartDate păstrat. <code>updateBtcATH</code> (apelată cu prețul curent) păstrează reset-ul fără modificare — acolo e mereu live.</li>
+                <li><strong>Audit complet impact decizii Bloc B/C/Confidence:</strong> <code>blocB.drawdownPct</code> și <code>blocB.bearMonths</code> propagă corect; <code>accumCtx.isAdvancedAccum</code> și <code>accumCtx.isDeepBear</code> activate corect; Confidence Layer (linia 2700+) folosește valori corecte pentru ajustări BEAR_RALLY și TRANSITION_RALLY; replay output JSON (<code>v11BlocCDrawdownPct</code>) reflectă ATH cronologic în timpul iterației. Bloc D (corecție) nu e afectat — folosește <code>ctx.startPrice</code> din correctionContext, nu btcATH.</li>
+              </ul>
+            </li>
           </ul>
         </div>
 
