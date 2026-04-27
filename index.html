@@ -1297,7 +1297,7 @@
 </div>
 <div class="titlebar">
 <div>
-<h1>CryptoRisk Dashboard — V11.9.1 rev E</h1>
+<h1>CryptoRisk Dashboard — V11.9.1 rev F</h1>
 <div class="subtitle">Engine V11.9.1 · V10.7.7.3 engine (intact) · V11 Context Layer (Bloc A-E) · Confidence Layer (confluence scoring + transition/saturation discriminator) · commentary override · bear rally / transition detection · execution memory + journal</div>
 </div>
 <div class="subtitle" id="scenarioSubtitle">Scenariu activ: Live / Execution response</div>
@@ -1627,6 +1627,9 @@
   let nextSyncIn = AUTO_SYNC_SECONDS;
   let countdownInterval = null;
   let autosyncInterval = null;
+  // V11.9.1 rev F — Fix 2: tracker pentru ultima sync reușită (detect connection lost)
+  let lastSuccessfulSyncMs = null;
+  const STALE_SYNC_THRESHOLD_MS = (AUTO_SYNC_SECONDS + 120) * 1000; // 5min refresh + 2min buffer = 7min
 
   // ═══════════════════════════════════════════════════════════
   // V11 CONTEXT LAYER — State persistentă
@@ -2682,6 +2685,10 @@
     const ath365 = Math.max(...dClose.slice(-365));
     const drawdownAth = ath365 > 0 ? ((dClose[dClose.length-1] - ath365) / ath365 * 100) : 0;
 
+    // V11.9.1 rev F — Fix 1: capturăm timestamp-ul ultimului candle pentru stale detection
+    const lastDailyOpenTime = dailyK.length ? Number(dailyK[dailyK.length - 1][0]) : null;
+    const lastWeeklyOpenTime = weeklyK.length ? Number(weeklyK[weeklyK.length - 1][0]) : null;
+
     return {
       symbol,
       price,
@@ -2699,12 +2706,14 @@
         ema9: last(ema9),
         ema21: last(ema21),
         ema50: last(ema50),
-        ema200: last(ema200)
+        ema200: last(ema200),
+        lastCandleOpenTime: lastDailyOpenTime
       },
       weekly: {
         closes: wClose,
         rsi: { current: last(weeklyRsiSeries), previous: prev(weeklyRsiSeries) },
-        ichimoku: ichi
+        ichimoku: ichi,
+        lastCandleOpenTime: lastWeeklyOpenTime
       },
       volumeTrend,
       change3d, change7d, change30d, drawdownAth
@@ -4768,6 +4777,31 @@ async function fetchData() {
     pushIndicator('ETH Ichimoku weekly', data?.eth?.weekly?.ichimoku?.relation && data.eth.weekly.ichimoku.relation !== 'insufficient' ? 'OK' : 'WARNING', data?.eth?.weekly?.ichimoku?.relation || 'Unavailable');
     pushIndicator('ETH/BTC 7d relative strength', finite(data?.rel7d) ? 'OK' : 'WARNING', finite(data?.rel7d) ? fmtPct(data.rel7d) : 'Unavailable');
 
+    // V11.9.1 rev F — Fix 1: detecție candele stale (Binance returnează date vechi sau API parțial degraded)
+    const nowMs = Date.now();
+    const btcLastCandle = data?.btc?.daily?.lastCandleOpenTime;
+    const ethLastCandle = data?.eth?.daily?.lastCandleOpenTime;
+    let candleFreshnessStatus = 'OK';
+    let candleFreshnessDetail = 'real-time';
+
+    if (Number.isFinite(btcLastCandle)) {
+      // Candele zilnice deschid la 00:00 UTC. Acceptabil = ultimul candle deschis în ultimele 28h
+      // (1 zi + buffer 4h pentru zone orare și mici delay-uri)
+      const ageHours = (nowMs - btcLastCandle) / (1000 * 60 * 60);
+      if (ageHours > 28) {
+        candleFreshnessStatus = 'WARNING';
+        candleFreshnessDetail = `BTC last candle ${ageHours.toFixed(1)}h old (expected <28h)`;
+        warnings.push(`Daily candle data older than 28h (${ageHours.toFixed(1)}h)`);
+      } else {
+        candleFreshnessDetail = `BTC last candle ${ageHours.toFixed(1)}h old`;
+      }
+    } else {
+      candleFreshnessStatus = 'WARNING';
+      candleFreshnessDetail = 'Last candle timestamp unavailable';
+      warnings.push('Cannot verify candle freshness (timestamp missing)');
+    }
+
+    freshness.push({ name: 'Candle freshness', status: candleFreshnessStatus, detail: candleFreshnessDetail });
     freshness.push({ name: 'Live fetch age', status: 'OK', detail: 'real-time' });
     freshness.push({ name: 'Daily series', status: 'OK', detail: `${data.btc.daily.closes.length} candles BTC / ${data.eth.daily.closes.length} candles ETH` });
     freshness.push({ name: 'Weekly series', status: 'OK', detail: `${data.btc.weekly.closes.length} candles BTC / ${data.eth.weekly.closes.length} candles ETH` });
@@ -5941,11 +5975,27 @@ function renderDashboard(data, engine) {
       const s = String(nextSyncIn % 60).padStart(2, '0');
       const syncChip = document.getElementById('syncChip');
       const healthChip = document.getElementById('healthChip');
+
+      // V11.9.1 rev F — Fix 2: detectăm dacă ultima sync reușită e prea veche
+      // Dacă auto-refresh a eșuat în liniște (ex: internet căzut), 
+      // chip-urile NU mai trebuie să afișeze "LIVE" ca și cum totul ar fi OK.
+      const isStale = lastSuccessfulSyncMs &&
+                      (Date.now() - lastSuccessfulSyncMs) > STALE_SYNC_THRESHOLD_MS;
+
       if (syncChip && syncChip.dataset.lastSync) {
-        syncChip.textContent = `✓ SINCRONIZAT ${syncChip.dataset.lastSync}`;
+        if (isStale) {
+          const minutesAgo = Math.floor((Date.now() - lastSuccessfulSyncMs) / 60000);
+          syncChip.textContent = `⚠ STALE · ultima sync ${minutesAgo}m în urmă`;
+        } else {
+          syncChip.textContent = `✓ SINCRONIZAT ${syncChip.dataset.lastSync}`;
+        }
       }
       if (healthChip && healthChip.dataset.healthLabel) {
-        healthChip.textContent = `${healthChip.dataset.healthLabel}`;
+        if (isStale) {
+          healthChip.textContent = '🟡 STALE · datele nu mai sunt live';
+        } else {
+          healthChip.textContent = `${healthChip.dataset.healthLabel}`;
+        }
       }
     }, 1000);
   }
@@ -5980,6 +6030,9 @@ function renderDashboard(data, engine) {
         syncChip.textContent = `⚠ DEGRADED ${syncTime}`;
         healthChip.dataset.healthLabel = `${health.style.color} DEGRADED · ${health.score}%`;
         healthChip.textContent = `${health.style.color} DEGRADED · ${health.score}%`;
+        // V11.9.1 rev F — Fix 2: chiar dacă health-ul e degraded, sync-ul ÎN SINE a reușit
+        // (am primit date, doar că sunt parțiale). Marcăm timestamp pentru tracking corect.
+        lastSuccessfulSyncMs = Date.now();
         resetCountdown();
         startCountdown();
         return;
@@ -5992,6 +6045,8 @@ function renderDashboard(data, engine) {
       healthChip.dataset.healthLabel = `${health.style.color} LIVE · ${health.score}%`;
       healthChip.textContent = `${health.style.color} LIVE · ${health.score}%`;
       document.getElementById('scenarioSubtitle').textContent = 'Mod activ: LIVE DATA';
+      // V11.9.1 rev F — Fix 2: marcăm timestamp-ul ultimei sync reușite (pentru stale detection)
+      lastSuccessfulSyncMs = Date.now();
       resetCountdown();
       startCountdown();
     } catch (err) {
@@ -7082,6 +7137,10 @@ function buildChangelogPanel() {
             <li><strong>rev E: Guide complet rescris.</strong> Reorganizat pentru V11.9.1 cu arhitectura pe 3 layere (Engine V10.7.7.3 + V11 Context Layer + Confidence Layer). Extins de la 5 la 6 tab-uri — adăugat tab nou <em>Confidence</em> care explică: regulile HIGH/MEDIUM/LOW, persistența localStorage, interacțiunea cu V11 Bear Rally, validarea statistică pe 3167 zile. Tab-ul <em>How to Read</em> descrie fiecare card și sub-card în detaliu. Tab-ul <em>States</em> grupează cele 13 stări pe categorii (bullish/bearish/neutre/speciale). Tab-urile <em>Actions</em> și <em>Limitations</em> rescrise cu ținte de expunere tipice și limite cunoscute ale sistemului.</li>
             <li><strong>rev E: Grafic BTC/ETH în Market Snapshot.</strong> Adăugat sub comentarii pentru a umple spațiul gol din card. SVG inline fără dependențe externe (fără TradingView, Chart.js, Recharts). 90 zile de tracking cu preț normalizat la 100 pentru comparație vizuală directă BTC vs ETH. Culori oficiale: BTC orange <code>#f7931a</code>, ETH albastru <code>#627eea</code>. Gradient fill sub linii, gridlines discrete, axe cu date lunare. Tooltip interactiv la hover: cursor vertical, dots pe linii, dată exactă și prețuri absolute ($USD). Legendă în header cu prețurile curente. Fallback timestamp din <code>data.fetchedAt</code> backward dacă <code>btc.daily.times</code> nu e disponibil.</li>
             <li><strong>rev E: Cleanup — footer și referințe vechi.</strong> Șters textul <em>"Demo simplificat: state engine + confidence engine + EMA50..."</em> din footer (nu mai reflectă complexitatea V11.9.1). Actualizat textul vizibil despre Execution Memory din <em>"V9.5 reduce zgomotul..."</em> la <em>"Sistemul reduce zgomotul..."</em> — referința la versiunea veche era confuză. Heading-urile de changelog pentru versiuni istorice (V9.5, V10.5.x) rămân — sunt istoric legitim documentat.</li>
+            <li><strong>rev F (Fix 1): Stale candle detection.</strong> Problema descoperită la audit pre-V12: <code>validateData()</code> verifica doar că prețul e număr finit — dar nu și că ultimul candle daily e recent. Dacă API-ul Binance returna date cached vechi sau dacă endpoint-ul era parțial degraded, sistemul afișa <em>"🟢 LIVE · 100%"</em> peste date stale, fără să sesizeze. Fix: <code>fetchSymbol()</code> capturează acum <code>lastCandleOpenTime</code> (timestamp UTC al ultimului candle daily/weekly) în returnul fiecărui simbol. <code>validateData()</code> calculează vârsta candle-ului curent vs <code>Date.now()</code>: acceptabil sub 28h (1 zi + 4h buffer pentru zone orare și mici delay-uri). Peste 28h → adaugă warning + score penalty. Health panel afișează acum <em>"Candle freshness"</em> cu vârsta concretă (ex: <em>"BTC last candle 3.2h old"</em>).</li>
+            <li><strong>rev F (Fix 2): Connection lost detection în countdown.</strong> Problema: dacă utilizatorul lasă tab-ul deschis și internetul cade temporar, auto-refresh la 5min eșuează silent (mesaj <em>"✕ EROARE SYNC"</em> apare scurt apoi countdown continuă să afișeze chip-urile vechi <em>"✓ SINCRONIZAT 23:45 · 🟢 LIVE 100%"</em>). Utilizatorul poate crede că sistemul e live când de fapt nu mai sincronizează de ore. Fix: tracker global <code>lastSuccessfulSyncMs</code> setat la fiecare sync reușit (LIVE sau DEGRADED — ambele înseamnă că am primit date). Countdown-ul (tick-ul de 1s) verifică acum dacă ultima sync e mai veche de 7 minute (5min refresh + 2min buffer) — dacă da, suprascrie chip-urile cu <em>"⚠ STALE · ultima sync Xm în urmă"</em> și <em>"🟡 STALE · datele nu mai sunt live"</em>. La următorul refresh reușit, totul revine automat la normal.</li>
+            <li><strong>rev F (Cleanup): Eliminat cod mort.</strong> La sfârșitul fișierului exista un <code>setInterval</code> care apela <code>updateDashboard()</code> sau <code>updateStablecoinCard()</code> la 5 minute — funcții care nu există în cod. Era remnant de dezvoltare fără efect funcțional dar polua codebase-ul. Șters complet. Refresh-ul real e gestionat de <code>autosyncInterval</code> care apelează <code>refreshLive()</code>.</li>
+            <li><strong>rev F (To-do pentru V12):</strong> 4 probleme minore identificate la audit dar amânate pentru V12 unde se vor rezolva natural cu noua arhitectură: (1) <em>Stablecoin cache 12h</em> — utilizatorul nu știe că datele USDT/USDC pot fi cu 12h în urmă (V12 va avea Composition Layer cu transparency explicit per source). (2) <em>Volume trend bias pe ziua parțială</em> — dVol[length-1] include ziua curentă incompletă, producând salturi artificiale ±20% la trecerea de la o zi la alta (V12 va exclude ziua curentă din MA-uri). (3) <em>Drawdown ATH 365d</em> — nu reflectă ATH absolut dacă bear durează &gt;1 an (V12 va folosi ATH absolut tracked separat). (4) <em>Live ticker freshness</em> — nu verifică timestamp-ul ticker-ului 24h (acoperit parțial de Fix 1 prin candle freshness, dar V12 va valida explicit fiecare endpoint).</li>
           </ul>
         </div>
 
@@ -7608,7 +7667,6 @@ function backfillJournal(engineRunner) {
   //
   // ═══════════════════════════════════════════════════════════
 </script>
-
-<script>setInterval(()=>{ if (typeof updateDashboard==='function') updateDashboard(); else if (typeof updateStablecoinCard==='function') updateStablecoinCard(); }, 5 * 60 * 1000);</script>
+<!-- V11.9.1 rev F — Eliminat cod mort care apela updateDashboard()/updateStablecoinCard() (funcții inexistente). Refresh-ul real e gestionat de autosyncInterval (refreshLive la 5min). -->
 </body>
 </html>
